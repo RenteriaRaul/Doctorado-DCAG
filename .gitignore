@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter / Colab
+.ipynb_checkpoints/
+
+# Entornos virtuales
+venv/
+.env/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Comprimidos
+*.zip
+*.rar
+*.7z
+
+# Temporales
+tmp/
+temp/
