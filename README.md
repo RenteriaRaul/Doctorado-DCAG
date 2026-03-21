@@ -46,9 +46,10 @@ Repositorio de trabajo para el análisis de precipitación extrema, excedencias,
 - GeoPandas
 - Rasterio
 
-## Estado actual
 
-Versión modular inicial del proyecto, con notebooks limpios y scripts reutilizables para curvas de retorno y excedencias.
+## Hito de versión
+
+Primer corte estable con estructura modular para curvas de retorno y excedencias.
 
 ## Autor
 
