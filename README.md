@@ -12,8 +12,21 @@ Repositorio de trabajo para el análisis de precipitación extrema, excedencias,
 
 ## Notebooks principales
 
+### Módulo CONAGUA (estaciones meteorológicas)
+
 - `01_gev_return_levels.ipynb`: curvas de retorno por estación y procesamiento batch
 - `02_exceedance_pipeline.ipynb`: cálculo de excedencias, interpolación, incertidumbre y exportación a QGIS
+
+### Módulo Sustax (precipitación satelital)
+
+Ubicación: `notebooks/sustax/`
+
+- `01_sustax_data_pipeline.ipynb`: limpieza, integración y estructuración de datos Sustax
+- `02_sustax_validation_obs_vs_era5.ipynb`: validación histórica entre observaciones (CONAGUA) y ERA5
+- `03_sustax_event_analysis_2015.ipynb`: análisis del evento extremo octubre 2015
+- `04_sustax_extreme_analysis_heatmaps.ipynb`: generación de heatmaps de percentiles y extremos
+- `05_sustax_future_projection.ipynb`: proyección de eventos extremos bajo escenarios SSP
+- `06_sustax_flood_detection_proxy.ipynb`: detección proxy de inundaciones basada en extremos hidrometeorológicos
 
 ## Scripts principales
 
@@ -32,6 +45,10 @@ Repositorio de trabajo para el análisis de precipitación extrema, excedencias,
 - Estimar niveles de retorno mediante GEV
 - Calcular probabilidad de excedencia de lluvia intensa
 - Generar mapas interpolados e incertidumbre espacial
+- Integrar datos satelitales de precipitación (Sustax)
+- Analizar eventos extremos históricos y futuros
+- Evaluar escenarios climáticos SSP
+- Identificar condiciones potenciales de inundación
 - Exportar productos compatibles con QGIS
 - Mantener un flujo reproducible para tesis doctoral
 
@@ -45,11 +62,12 @@ Repositorio de trabajo para el análisis de precipitación extrema, excedencias,
 - SciPy
 - GeoPandas
 - Rasterio
-
+- Seaborn
 
 ## Hito de versión
 
-Primer corte estable con estructura modular para curvas de retorno y excedencias.
+- Primer corte estable: módulo CONAGUA (curvas de retorno y excedencias)
+- Segundo corte estable: integración del módulo Sustax (validación, análisis de extremos y proyección futura)
 
 ## Autor
 
