@@ -1,0 +1,1137 @@
+/* =========================================================
+   DOCTORADO-DCAG
+   Estilos generales de la plataforma
+   ========================================================= */
+
+
+/* ---------- FONDO GENERAL ---------- */
+
+.stApp {
+    background:
+        radial-gradient(
+            circle at 70% 15%,
+            rgba(20, 72, 120, 0.16),
+            transparent 30%
+        ),
+        #06172B;
+}
+
+
+/* ---------- CONTENEDOR PRINCIPAL ---------- */
+
+.block-container {
+    max-width: 1250px;
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+}
+
+
+/* ---------- HERO PRINCIPAL ---------- */
+
+.dcag-hero {
+    background: linear-gradient(
+        110deg,
+        #0B2948 0%,
+        #123E67 100%
+    );
+
+    border: 1px solid #244B70;
+    border-radius: 18px;
+
+    padding: 28px 32px;
+    margin-bottom: 30px;
+}
+
+.dcag-hero h1 {
+    color: #F8FAFC;
+    margin: 0 0 18px 0;
+    font-size: 2.2rem;
+}
+
+.dcag-hero h3 {
+    color: #F8FAFC;
+    margin-bottom: 14px;
+}
+
+.dcag-hero p {
+    color: #AFC5DC;
+    margin-bottom: 0;
+}
+
+
+/* ---------- TARJETAS ---------- */
+
+.dcag-card {
+    background: #102A47;
+
+    border: 1px solid #244B70;
+    border-radius: 16px;
+
+    padding: 22px;
+
+    min-height: 190px;
+
+    transition:
+        transform 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.dcag-card:hover {
+    transform: translateY(-4px);
+
+    border-color: #2196F3;
+
+    box-shadow:
+        0 8px 24px
+        rgba(0, 0, 0, 0.20);
+}
+
+.dcag-card-icon {
+    font-size: 2rem;
+    margin-bottom: 16px;
+}
+
+.dcag-card-title {
+    color: #F8FAFC;
+
+    font-size: 1.05rem;
+    font-weight: 700;
+
+    margin-bottom: 10px;
+}
+
+.dcag-card-description {
+    color: #AFC5DC;
+
+    font-size: 0.90rem;
+    line-height: 1.5;
+}
+
+
+/* ---------- ESTADOS ---------- */
+
+.status-available {
+    color: #38BDF8;
+    font-weight: 600;
+}
+
+.status-integration {
+    color: #2DD4BF;
+    font-weight: 600;
+}
+
+.status-planned {
+    color: #AFC5DC;
+    font-weight: 600;
+}
+
+
+/* ---------- SECCIONES ---------- */
+
+.dcag-section-title {
+    color: #F8FAFC;
+
+    font-size: 1.55rem;
+    font-weight: 700;
+
+    margin-top: 20px;
+    margin-bottom: 18px;
+}
+
+
+/* ---------- SIDEBAR ---------- */
+
+section[data-testid="stSidebar"] {
+    background-color: #08192D;
+}
+
+section[data-testid="stSidebar"] * {
+    color: #D7E5F3;
+}
+
+/* =========================================================
+   HERO PRINCIPAL
+   ========================================================= */
+
+.dcag-hero {
+    position: relative;
+
+    background:
+        radial-gradient(
+            circle at 85% 25%,
+            rgba(33, 150, 243, 0.22),
+            transparent 35%
+        ),
+        linear-gradient(
+            120deg,
+            #0A223C 0%,
+            #123F67 55%,
+            #0B2948 100%
+        );
+
+    border: 1px solid #244B70;
+    border-radius: 22px;
+
+    padding: 36px 40px;
+    margin-bottom: 30px;
+
+    overflow: hidden;
+}
+
+
+.dcag-hero::after {
+    content: "";
+
+    position: absolute;
+
+    width: 300px;
+    height: 300px;
+
+    right: -100px;
+    top: -120px;
+
+    border-radius: 50%;
+
+    background: rgba(56, 189, 248, 0.08);
+}
+
+
+.dcag-hero-badge {
+    display: inline-block;
+
+    padding: 6px 12px;
+
+    margin-bottom: 18px;
+
+    border-radius: 30px;
+
+    background: rgba(33, 150, 243, 0.15);
+
+    border: 1px solid rgba(56, 189, 248, 0.35);
+
+    color: #7DD3FC;
+
+    font-size: 0.82rem;
+
+    font-weight: 600;
+}
+
+
+.dcag-hero h1 {
+    color: #F8FAFC;
+
+    font-size: 2.6rem;
+
+    margin-bottom: 8px;
+}
+
+
+.dcag-hero h2 {
+    color: #E1EDF8;
+
+    font-size: 1.35rem;
+
+    font-weight: 500;
+
+    margin-top: 0;
+    margin-bottom: 18px;
+}
+
+
+.dcag-hero p {
+    max-width: 780px;
+
+    color: #AFC5DC;
+
+    font-size: 1rem;
+
+    line-height: 1.7;
+
+    margin-bottom: 24px;
+}
+
+
+.dcag-hero-tags {
+    display: flex;
+
+    gap: 10px;
+
+    flex-wrap: wrap;
+}
+
+
+.dcag-hero-tags span {
+    padding: 7px 12px;
+
+    border-radius: 20px;
+
+    background: rgba(6, 23, 43, 0.55);
+
+    border: 1px solid rgba(175, 197, 220, 0.20);
+
+    color: #D7E5F3;
+
+    font-size: 0.8rem;
+}
+
+
+/* =========================================================
+   TARJETAS DE MÓDULOS
+   ========================================================= */
+
+.dcag-card {
+    position: relative;
+
+    /* Todas las tarjetas mantienen la misma altura */
+    height: 230px;
+
+    background:
+        linear-gradient(
+            160deg,
+            #102A47 0%,
+            #0B223B 100%
+        );
+
+    border: 1px solid #244B70;
+    border-radius: 18px;
+
+    padding: 22px;
+
+    overflow: hidden;
+
+    /* Organización vertical interna */
+    display: flex;
+    flex-direction: column;
+
+    transition:
+        transform 0.25s ease,
+        border-color 0.25s ease,
+        box-shadow 0.25s ease;
+}
+
+
+/* Decoración circular superior */
+
+.dcag-card::before {
+    content: "";
+
+    position: absolute;
+
+    width: 120px;
+    height: 120px;
+
+    right: -50px;
+    top: -50px;
+
+    border-radius: 50%;
+
+    background: rgba(33, 150, 243, 0.07);
+
+    pointer-events: none;
+}
+
+
+/* Efecto al pasar el cursor */
+
+.dcag-card:hover {
+    transform: translateY(-5px);
+
+    border-color: #2196F3;
+
+    box-shadow:
+        0 12px 28px
+        rgba(0, 0, 0, 0.25);
+}
+
+
+/* Icono */
+
+.dcag-card-icon {
+    position: relative;
+
+    font-size: 2.1rem;
+
+    margin-bottom: 16px;
+
+    line-height: 1;
+}
+
+
+/* Título */
+
+.dcag-card-title {
+    position: relative;
+
+    color: #F8FAFC;
+
+    font-size: 1.08rem;
+    font-weight: 700;
+
+    margin-bottom: 10px;
+}
+
+
+/* Descripción */
+
+.dcag-card-description {
+    position: relative;
+
+    color: #AFC5DC;
+
+    font-size: 0.86rem;
+    line-height: 1.5;
+
+    /* Ocupa el espacio disponible */
+    flex-grow: 1;
+
+    padding-bottom: 12px;
+}
+
+
+/* Estado del módulo */
+
+.dcag-card-status {
+    position: relative;
+
+    /* Empuja siempre el estado hacia abajo */
+    margin-top: auto;
+
+    font-size: 0.78rem;
+    font-weight: 600;
+
+    line-height: 1.2;
+}
+
+
+/* =========================================================
+   ESTADOS DE LOS MÓDULOS
+   ========================================================= */
+
+.status-available {
+    color: #38BDF8;
+}
+
+.status-integration {
+    color: #2DD4BF;
+}
+
+.status-next {
+    color: #FBBF24;
+}
+
+.status-planned {
+    color: #94A3B8;
+}
+
+/* =========================================================
+   BOTONES / ENLACES DE NAVEGACIÓN DE TARJETAS
+   ========================================================= */
+
+
+/*
+   Contenedor de Page Link
+*/
+
+[data-testid="stPageLink"] {
+    margin-top: -14px;
+    margin-bottom: 22px;
+}
+
+
+/*
+   Enlace
+*/
+
+[data-testid="stPageLink"] a {
+
+    background:
+        linear-gradient(
+            90deg,
+            rgba(33, 150, 243, 0.15),
+            rgba(56, 189, 248, 0.08)
+        );
+
+    border: 1px solid rgba(56, 189, 248, 0.25);
+
+    border-radius: 10px;
+
+    color: #38BDF8;
+
+    min-height: 38px;
+
+    transition:
+        background 0.2s ease,
+        border-color 0.2s ease,
+        transform 0.2s ease;
+}
+
+
+/*
+   Hover
+*/
+
+[data-testid="stPageLink"] a:hover {
+
+    background:
+        linear-gradient(
+            90deg,
+            rgba(33, 150, 243, 0.28),
+            rgba(56, 189, 248, 0.15)
+        );
+
+    border-color: #2196F3;
+
+    color: #7DD3FC;
+
+    transform: translateY(-1px);
+}
+
+
+/*
+   Texto del enlace
+*/
+
+[data-testid="stPageLink"] p {
+
+    font-size: 0.82rem;
+
+    font-weight: 600;
+
+    margin: 0;
+}
+
+/* =========================================================
+   CENTRO DE CONTROL
+   ========================================================= */
+
+.dcag-status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+}
+
+
+.dcag-status-box {
+    background: #0E2844;
+    border: 1px solid #244B70;
+    border-radius: 14px;
+    padding: 16px;
+}
+
+
+.dcag-status-label {
+    color: #AFC5DC;
+    font-size: 0.78rem;
+    margin-bottom: 7px;
+}
+
+
+.dcag-status-value {
+    color: #F8FAFC;
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+
+.status-online {
+    color: #2DD4BF;
+}
+
+
+.status-pending {
+    color: #FBBF24;
+}
+
+
+/* ---------- PANEL GENERAL ---------- */
+
+.dcag-control-panel {
+    background:
+        linear-gradient(
+            160deg,
+            #102A47,
+            #0A223B
+        );
+
+    border: 1px solid #244B70;
+    border-radius: 18px;
+
+    padding: 20px;
+
+    min-height: 310px;
+}
+
+
+.dcag-panel-title {
+    color: #F8FAFC;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 18px;
+}
+
+
+/* ---------- PLACEHOLDER MAPA ---------- */
+
+.dcag-map-placeholder {
+    min-height: 230px;
+
+    border: 1px dashed #315A82;
+    border-radius: 14px;
+
+    display: flex;
+    flex-direction: column;
+
+    align-items: center;
+    justify-content: center;
+
+    text-align: center;
+
+    padding: 28px;
+
+    background:
+        radial-gradient(
+            circle at center,
+            rgba(33, 150, 243, 0.12),
+            rgba(6, 23, 43, 0.25)
+        );
+}
+
+
+.dcag-map-icon {
+    font-size: 3rem;
+    margin-bottom: 12px;
+}
+
+
+.dcag-map-title {
+    color: #F8FAFC;
+    font-weight: 700;
+    margin-bottom: 7px;
+}
+
+
+.dcag-map-text {
+    color: #AFC5DC;
+    font-size: 0.85rem;
+    line-height: 1.5;
+
+    max-width: 520px;
+}
+
+
+/* ---------- RESUMEN ---------- */
+
+.dcag-summary-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 15px;
+
+    padding: 14px 0;
+
+    border-bottom:
+        1px solid rgba(175, 197, 220, 0.12);
+
+    color: #AFC5DC;
+
+    font-size: 0.86rem;
+}
+
+
+.dcag-summary-item:last-child {
+    border-bottom: none;
+}
+
+
+.dcag-summary-item strong {
+    color: #F8FAFC;
+}
+
+
+/* ---------- RESPONSIVE ---------- */
+
+@media (max-width: 900px) {
+
+    .dcag-status-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+}
+
+
+@media (max-width: 600px) {
+
+    .dcag-status-grid {
+        grid-template-columns: 1fr;
+    }
+
+}
+
+/* =========================================================
+   ACTIVIDAD DE LA PLATAFORMA
+   ========================================================= */
+
+.dcag-activity-panel,
+.dcag-development-panel {
+
+    background:
+        linear-gradient(
+            160deg,
+            #102A47 0%,
+            #0A223B 100%
+        );
+
+    border: 1px solid #244B70;
+    border-radius: 18px;
+
+    padding: 22px;
+
+    min-height: 420px;
+}
+
+
+/* ---------- ACTIVIDAD ---------- */
+
+.dcag-activity-item {
+
+    display: grid;
+
+    grid-template-columns:
+        45px
+        minmax(0, 1fr)
+        auto;
+
+    gap: 14px;
+
+    align-items: center;
+
+    padding: 16px 0;
+
+    border-bottom:
+        1px solid
+        rgba(175, 197, 220, 0.12);
+}
+
+
+.dcag-activity-item:last-child {
+    border-bottom: none;
+}
+
+
+.dcag-activity-icon {
+
+    width: 42px;
+    height: 42px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 12px;
+
+    background:
+        rgba(33, 150, 243, 0.10);
+
+    font-size: 1.35rem;
+}
+
+
+.dcag-activity-content {
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 4px;
+}
+
+
+.dcag-activity-content strong {
+
+    color: #F8FAFC;
+
+    font-size: 0.92rem;
+}
+
+
+.dcag-activity-content span {
+
+    color: #AFC5DC;
+
+    font-size: 0.78rem;
+
+    line-height: 1.45;
+}
+
+
+.dcag-mini-status {
+
+    padding: 5px 9px;
+
+    border-radius: 20px;
+
+    font-size: 0.70rem;
+
+    font-weight: 700;
+
+    white-space: nowrap;
+}
+
+
+.status-development {
+
+    color: #2DD4BF;
+
+    background:
+        rgba(45, 212, 191, 0.08);
+
+    border:
+        1px solid
+        rgba(45, 212, 191, 0.20);
+}
+
+
+/* ---------- PRÓXIMAS ETAPAS ---------- */
+
+.dcag-step {
+
+    display: grid;
+
+    grid-template-columns: 42px 1fr;
+
+    gap: 14px;
+
+    padding: 15px 0;
+
+    border-bottom:
+        1px solid
+        rgba(175, 197, 220, 0.12);
+}
+
+
+.dcag-step:last-child {
+    border-bottom: none;
+}
+
+
+.dcag-step-number {
+
+    width: 36px;
+    height: 36px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 50%;
+
+    background:
+        rgba(33, 150, 243, 0.12);
+
+    border:
+        1px solid
+        rgba(56, 189, 248, 0.25);
+
+    color: #38BDF8;
+
+    font-size: 0.75rem;
+
+    font-weight: 700;
+}
+
+
+.dcag-step strong {
+
+    color: #F8FAFC;
+
+    font-size: 0.90rem;
+}
+
+
+.dcag-step p {
+
+    color: #AFC5DC;
+
+    font-size: 0.78rem;
+
+    line-height: 1.45;
+
+    margin:
+        5px 0 0 0;
+}
+
+
+/* ---------- RESPONSIVE ---------- */
+
+@media (max-width: 700px) {
+
+    .dcag-activity-item {
+
+        grid-template-columns:
+            42px
+            1fr;
+    }
+
+
+    .dcag-mini-status {
+
+        grid-column: 2;
+
+        justify-self: start;
+    }
+
+}
+
+/* =========================================================
+   SIDEBAR — IDENTIDAD VISUAL
+   ========================================================= */
+
+.dcag-sidebar-brand {
+
+    padding:
+        8px
+        4px
+        18px
+        4px;
+
+    margin-bottom: 8px;
+}
+
+
+.dcag-sidebar-logo {
+
+    width: 48px;
+    height: 48px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 14px;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(33, 150, 243, 0.28),
+            rgba(45, 212, 191, 0.12)
+        );
+
+    border:
+        1px solid
+        rgba(56, 189, 248, 0.28);
+
+    font-size: 1.55rem;
+
+    margin-bottom: 12px;
+}
+
+
+.dcag-sidebar-title {
+
+    color: #F8FAFC;
+
+    font-size: 1.15rem;
+
+    font-weight: 800;
+
+    margin-bottom: 2px;
+}
+
+
+.dcag-sidebar-subtitle {
+
+    color: #7DD3FC;
+
+    font-size: 0.74rem;
+
+    font-weight: 600;
+}
+
+
+.dcag-sidebar-divider {
+
+    height: 1px;
+
+    background:
+        rgba(175, 197, 220, 0.14);
+
+    margin:
+        16px
+        0;
+}
+
+
+.dcag-sidebar-project {
+
+    color: #D7E5F3;
+
+    font-size: 0.80rem;
+
+    line-height: 1.5;
+
+    font-weight: 600;
+
+    margin-bottom: 10px;
+}
+
+
+.dcag-sidebar-institution {
+
+    color: #8FA9C1;
+
+    font-size: 0.72rem;
+
+    line-height: 1.5;
+}
+
+
+.dcag-sidebar-version {
+
+    display: inline-block;
+
+    margin-top: 13px;
+
+    padding:
+        4px
+        9px;
+
+    border-radius: 20px;
+
+    background:
+        rgba(33, 150, 243, 0.10);
+
+    border:
+        1px solid
+        rgba(56, 189, 248, 0.18);
+
+    color: #7DD3FC;
+
+    font-size: 0.68rem;
+
+    font-weight: 700;
+}
+
+
+/* =========================================================
+   SIDEBAR — NAVEGACIÓN
+   ========================================================= */
+
+section[data-testid="stSidebar"] {
+
+    background:
+        linear-gradient(
+            180deg,
+            #06172B 0%,
+            #081D34 100%
+        );
+
+    border-right:
+        1px solid
+        #183A5A;
+}
+
+
+/*
+   Separación entre grupos
+*/
+
+section[data-testid="stSidebar"] nav {
+
+    margin-top: 6px;
+}
+
+
+/*
+   Texto general navegación
+*/
+
+section[data-testid="stSidebar"] a {
+
+    border-radius: 10px;
+
+    transition:
+        background-color 0.18s ease,
+        color 0.18s ease;
+}
+
+
+/*
+   Hover navegación
+*/
+
+section[data-testid="stSidebar"] a:hover {
+
+    background:
+        rgba(33, 150, 243, 0.08);
+}
+
+
+/* =========================================================
+   SIDEBAR — ESTADO DEL SISTEMA
+   ========================================================= */
+
+.dcag-sidebar-status {
+
+    margin-top: 24px;
+
+    padding: 14px;
+
+    border-radius: 14px;
+
+    background:
+        rgba(13, 42, 71, 0.80);
+
+    border:
+        1px solid
+        rgba(36, 75, 112, 0.85);
+}
+
+
+.dcag-sidebar-status-title {
+
+    color: #F8FAFC;
+
+    font-size: 0.78rem;
+
+    font-weight: 700;
+
+    margin-bottom: 10px;
+}
+
+
+.dcag-sidebar-status-row {
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 10px;
+
+    padding:
+        7px
+        0;
+
+    color: #8FA9C1;
+
+    font-size: 0.70rem;
+
+    border-bottom:
+        1px solid
+        rgba(175, 197, 220, 0.09);
+}
+
+
+.dcag-sidebar-status-row:last-child {
+
+    border-bottom: none;
+}
+
+
+.dcag-sidebar-status-row strong {
+
+    color: #D7E5F3;
+
+    font-size: 0.68rem;
+}
