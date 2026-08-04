@@ -139,37 +139,195 @@ def guardar_grafico_estacion(
 ):
     """
     Genera y guarda el gráfico de niveles de retorno con IC robusto.
+
+    Retorna
+    -------
+    advertencia : str
+        Mensaje de advertencia cuando los intervalos bootstrap
+        no contienen al valor puntual. Devuelve una cadena vacía
+        cuando no se detectan inconsistencias.
     """
-    plt.figure(figsize=(8, 5))
 
-    yerr = np.vstack([
-        niveles_puntuales - low_a,
+    niveles_retorno = np.asarray(
+        niveles_retorno,
+        dtype=float,
+    )
+
+    niveles_puntuales = np.asarray(
+        niveles_puntuales,
+        dtype=float,
+    )
+
+    low_a = np.asarray(
+        low_a,
+        dtype=float,
+    )
+
+    high_a = np.asarray(
+        high_a,
+        dtype=float,
+    )
+
+    # --------------------------------------------------------
+    # Validar dimensiones
+    # --------------------------------------------------------
+
+    if not (
+        len(niveles_retorno)
+        == len(niveles_puntuales)
+        == len(low_a)
+        == len(high_a)
+    ):
+        raise ValueError(
+            "Los vectores utilizados para generar la gráfica "
+            "no tienen la misma longitud."
+        )
+
+    # --------------------------------------------------------
+    # Calcular errores inferior y superior
+    # --------------------------------------------------------
+
+    error_inferior_original = (
+        niveles_puntuales - low_a
+    )
+
+    error_superior_original = (
         high_a - niveles_puntuales
-    ])
+    )
 
-    plt.errorbar(
+    # Detectar intervalos que no contienen el valor puntual
+    mascara_inconsistente = (
+        (error_inferior_original < 0)
+        | (error_superior_original < 0)
+    )
+
+    advertencia = ""
+
+    if np.any(mascara_inconsistente):
+        periodos_afectados = niveles_retorno[
+            mascara_inconsistente
+        ]
+
+        periodos_texto = ", ".join(
+            f"{periodo:g}"
+            for periodo in periodos_afectados
+        )
+
+        advertencia = (
+            "Advertencia gráfica: el intervalo bootstrap "
+            "no contiene el nivel puntual para los periodos "
+            f"de retorno: {periodos_texto} años."
+        )
+
+    # Matplotlib exige valores no negativos en yerr
+    error_inferior = np.maximum(
+        0.0,
+        error_inferior_original,
+    )
+
+    error_superior = np.maximum(
+        0.0,
+        error_superior_original,
+    )
+
+    # Los NaN o infinitos se sustituyen por cero únicamente
+    # para evitar que falle la visualización.
+    error_inferior = np.nan_to_num(
+        error_inferior,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+
+    error_superior = np.nan_to_num(
+        error_superior,
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+
+    yerr = np.vstack(
+        [
+            error_inferior,
+            error_superior,
+        ]
+    )
+
+    # --------------------------------------------------------
+    # Crear gráfica
+    # --------------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(8, 5)
+    )
+
+    ax.errorbar(
         niveles_retorno,
         niveles_puntuales,
         yerr=yerr,
         fmt="o-",
         capsize=4,
-        label="GEV (puntual) + IC 95% Boot A"
+        label="GEV puntual + IC 95% Bootstrap robusto",
     )
 
-    plt.xscale("log")
-    plt.xlim(niveles_retorno.min() * 0.9, max(plot_max_t, niveles_retorno.max()) * 1.1)
-    plt.xlabel("Return period (years)")
-    plt.ylabel("Precipitation (mm)")
+    ax.set_xscale("log")
 
-    subt = f"(n={n_years}, slope≈{slope:.2f} mm/año, shape={c:.3f})"
-    plt.title(f"Return Levels GEV – {station}\n{subt}")
+    limite_inferior = (
+        niveles_retorno.min() * 0.9
+    )
 
-    plt.grid(True, which="both", ls="--", alpha=0.6)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(png_out, dpi=150)
-    plt.close()
+    limite_superior = (
+        max(
+            plot_max_t,
+            niveles_retorno.max(),
+        )
+        * 1.1
+    )
 
+    ax.set_xlim(
+        limite_inferior,
+        limite_superior,
+    )
+
+    ax.set_xlabel(
+        "Periodo de retorno (años)"
+    )
+
+    ax.set_ylabel(
+        "Precipitación (mm)"
+    )
+
+    subtitulo = (
+        f"n={n_years}, "
+        f"pendiente≈{slope:.2f} mm/año, "
+        f"shape={c:.3f}"
+    )
+
+    ax.set_title(
+        f"Niveles de retorno GEV – {station}\n"
+        f"({subtitulo})"
+    )
+
+    ax.grid(
+        True,
+        which="both",
+        linestyle="--",
+        alpha=0.6,
+    )
+
+    ax.legend()
+
+    fig.tight_layout()
+
+    fig.savefig(
+        png_out,
+        dpi=150,
+        bbox_inches="tight",
+    )
+
+    plt.close(fig)
+
+    return advertencia
 
 def procesar_estacion(
     path_csv,
@@ -273,20 +431,46 @@ def procesar_estacion(
         png_out = os.path.join(dir_out, f"{station}_return_levels_ROBUST_{fecha_tag}.png")
         csv_out = os.path.join(dir_out, f"{station}_return_levels_ROBUST_{fecha_tag}.csv")
 
-        guardar_grafico_estacion(
-            station=station,
-            niveles_retorno=niveles_retorno,
-            niveles_puntuales=niveles_puntuales,
-            low_a=low_a,
-            high_a=high_a,
-            n_years=n_years,
-            slope=slope,
-            c=c,
-            png_out=png_out,
-            plot_max_t=plot_max_t,
+        # ----------------------------------------------------
+        # Guardar CSV de resultados
+        # ----------------------------------------------------
+
+        tabla.to_csv(
+            csv_out,
+            index=False,
         )
 
-        tabla.to_csv(csv_out, index=False)
+        # ----------------------------------------------------
+        # Generar gráfica de forma independiente
+        # ----------------------------------------------------
+
+        plot_created = False
+        plot_warning = ""
+
+        try:
+            plot_warning = guardar_grafico_estacion(
+                station=station,
+                niveles_retorno=niveles_retorno,
+                niveles_puntuales=niveles_puntuales,
+                low_a=low_a,
+                high_a=high_a,
+                n_years=n_years,
+                slope=slope,
+                c=c,
+                png_out=png_out,
+                plot_max_t=plot_max_t,
+            )
+
+            plot_created = True
+
+        except Exception as plot_error:
+            plot_warning = (
+                "No fue posible generar la gráfica: "
+                f"{plot_error}"
+            )
+
+            # La ruta se deja vacía para no indicar que existe
+            png_out = None
 
         meta = {
             "station": station,
@@ -301,6 +485,8 @@ def procesar_estacion(
             "bootA_naccepted": nacc_a,
             "bootB_naccepted": nacc_b,
             "note": note,
+            "plot_created": plot_created,
+            "plot_warning": plot_warning,
         }
 
         return tabla, meta

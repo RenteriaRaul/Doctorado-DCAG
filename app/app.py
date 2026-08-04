@@ -1,12 +1,23 @@
 from pathlib import Path
 
 import streamlit as st
+import sys 
 
+from pathlib import Path
 from components.sidebar_brand import render_sidebar_brand
 from components.sidebar_status import render_sidebar_status
 from components.styles import load_css
 from config import APP_NAME
 
+# ============================================================
+# RUTA RAÍZ DEL PROYECTO
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+    
 
 # ---------------------------------------------------------
 # Configuración general
