@@ -504,6 +504,295 @@ def interpolar_superficie(
 
     return Z
 
+# ============================================================
+# MAPA DE INTERPOLACIÓN OBSERVACIONAL
+# ============================================================
+
+def interpolar_superficie_observacional(
+    df,
+    col_lon="LONGITUD",
+    col_lat="LATITUD",
+    col_val="EXCEDENCIA_50MM",
+    resolucion=300,
+    eliminar_duplicados=True,
+):
+    """
+    Reproduce la metodología de interpolación utilizada
+    originalmente en Google Colab para los mapas de excedencia.
+
+    Características
+    ---------------
+    - interpolación scipy.griddata(method="linear");
+    - malla regular de 300 x 300 por defecto;
+    - sin margen adicional;
+    - sin extrapolación nearest;
+    - sin suavizado gaussiano;
+    - sin modificación de los valores observados;
+    - conserva solamente la primera estación cuando existen
+      coordenadas duplicadas.
+
+    La superficie resultante únicamente contiene valores dentro
+    del dominio espacial soportado por las estaciones
+    (casco convexo).
+
+    Parámetros
+    ----------
+    df : pd.DataFrame
+        Tabla con coordenadas y variable a interpolar.
+
+    col_lon : str
+        Columna de longitud.
+
+    col_lat : str
+        Columna de latitud.
+
+    col_val : str
+        Variable numérica a interpolar.
+
+    resolucion : int
+        Número de nodos por eje de la malla.
+
+    eliminar_duplicados : bool
+        Si True, conserva únicamente la primera estación cuando
+        existen coordenadas idénticas.
+
+    Retorna
+    -------
+    resultado : dict
+        Diccionario con:
+        - data
+        - points
+        - values
+        - grid_x
+        - grid_y
+        - grid_z
+        - extent
+        - calidad
+    """
+
+    columnas_requeridas = [
+        col_lon,
+        col_lat,
+        col_val,
+    ]
+
+    faltantes = [
+        columna
+        for columna in columnas_requeridas
+        if columna not in df.columns
+    ]
+
+    if faltantes:
+        raise ValueError(
+            f"Faltan columnas requeridas: {faltantes}"
+        )
+
+    if resolucion < 2:
+        raise ValueError(
+            "La resolución debe ser mayor o igual a 2."
+        )
+
+    data = df.copy()
+
+    total_original = len(data)
+
+    # --------------------------------------------------------
+    # CONVERSIÓN NUMÉRICA
+    # --------------------------------------------------------
+
+    for columna in columnas_requeridas:
+        data[columna] = pd.to_numeric(
+            data[columna],
+            errors="coerce",
+        )
+
+    registros_no_numericos = int(
+        data[columnas_requeridas]
+        .isna()
+        .any(axis=1)
+        .sum()
+    )
+
+    data = data.dropna(
+        subset=columnas_requeridas
+    ).copy()
+
+    # --------------------------------------------------------
+    # DUPLICADOS
+    # --------------------------------------------------------
+
+    duplicados_detectados = int(
+        data.duplicated(
+            subset=[
+                col_lon,
+                col_lat,
+            ],
+            keep=False,
+        ).sum()
+    )
+
+    duplicados_eliminados = 0
+
+    if eliminar_duplicados:
+
+        total_antes = len(data)
+
+        data = data.drop_duplicates(
+            subset=[
+                col_lon,
+                col_lat,
+            ],
+            keep="first",
+        ).copy()
+
+        duplicados_eliminados = (
+            total_antes - len(data)
+        )
+
+    if len(data) < 3:
+        raise ValueError(
+            "Se requieren al menos tres estaciones válidas "
+            "para realizar la interpolación lineal."
+        )
+
+    # --------------------------------------------------------
+    # PUNTOS Y VALORES
+    # --------------------------------------------------------
+
+    points = data[
+        [
+            col_lon,
+            col_lat,
+        ]
+    ].to_numpy(
+        dtype=float
+    )
+
+    values = data[
+        col_val
+    ].to_numpy(
+        dtype=float
+    )
+
+    # --------------------------------------------------------
+    # VALIDAR DISTRIBUCIÓN ESPACIAL
+    # --------------------------------------------------------
+
+    validar_puntos_interpolacion(
+        points=points,
+        method="linear",
+    )
+
+    # --------------------------------------------------------
+    # MALLA ORIGINAL TIPO COLAB
+    # --------------------------------------------------------
+    #
+    # Importante:
+    # - no utiliza margen;
+    # - utiliza exactamente min/max de las estaciones.
+    # --------------------------------------------------------
+
+    lon_min = float(
+        data[col_lon].min()
+    )
+
+    lon_max = float(
+        data[col_lon].max()
+    )
+
+    lat_min = float(
+        data[col_lat].min()
+    )
+
+    lat_max = float(
+        data[col_lat].max()
+    )
+
+    grid_x, grid_y = np.mgrid[
+        lon_min:lon_max:complex(resolucion),
+        lat_min:lat_max:complex(resolucion),
+    ]
+
+    # --------------------------------------------------------
+    # INTERPOLACIÓN LINEAL
+    # --------------------------------------------------------
+
+    try:
+
+        grid_z = griddata(
+            points,
+            values,
+            (
+                grid_x,
+                grid_y,
+            ),
+            method="linear",
+        )
+
+    except Exception as error:
+
+        raise ValueError(
+            "No fue posible realizar la interpolación lineal. "
+            f"Detalle: {error}"
+        ) from error
+
+    if grid_z is None:
+        raise ValueError(
+            "La interpolación no produjo una superficie."
+        )
+
+    if not np.any(
+        np.isfinite(grid_z)
+    ):
+        raise ValueError(
+            "La superficie interpolada no contiene valores válidos."
+        )
+
+    # --------------------------------------------------------
+    # METADATOS
+    # --------------------------------------------------------
+
+    extent = {
+        "lon_min": lon_min,
+        "lon_max": lon_max,
+        "lat_min": lat_min,
+        "lat_max": lat_max,
+        "nx": resolucion,
+        "ny": resolucion,
+        "margin": 0.0,
+        "method": "linear",
+    }
+
+    calidad = {
+        "total_registros_originales": total_original,
+        "registros_no_numericos": registros_no_numericos,
+        "duplicados_detectados": duplicados_detectados,
+        "duplicados_eliminados": duplicados_eliminados,
+        "total_estaciones_validas": len(data),
+        "valor_minimo_observado": float(
+            np.nanmin(values)
+        ),
+        "valor_maximo_observado": float(
+            np.nanmax(values)
+        ),
+        "valor_minimo_interpolado": float(
+            np.nanmin(grid_z)
+        ),
+        "valor_maximo_interpolado": float(
+            np.nanmax(grid_z)
+        ),
+    }
+
+    return {
+        "data": data,
+        "points": points,
+        "values": values,
+        "grid_x": grid_x,
+        "grid_y": grid_y,
+        "grid_z": grid_z,
+        "extent": extent,
+        "calidad": calidad,
+    }
 
 # ============================================================
 # RELLENO EXTERIOR
@@ -554,6 +843,148 @@ def rellenar_nan_con_nearest(
 
     return Z_filled
 
+# ============================================================
+# MAPA OBSERVACIONAL TIPO COLAB
+# ============================================================
+
+def plot_superficie_observacional(
+    resultado,
+    col_lon="LONGITUD",
+    col_lat="LATITUD",
+    col_label="NOMBRE",
+    title="Interpolated Exceedance Map",
+    colorbar_label="Probability of Exceedance ≥ 50 mm",
+    cmap="YlOrRd",
+    levels=15,
+    show_stations=True,
+    show_labels=True,
+    label_dx=0.01,
+    label_dy=0.01,
+    gdf_limite=None,
+    figsize=(12, 9),
+):
+    """
+    Visualiza una superficie generada mediante
+    interpolar_superficie_observacional().
+
+    Reproduce el estilo metodológico original:
+    contourf con número fijo de niveles.
+
+    El límite territorial es únicamente una referencia visual.
+    No modifica la interpolación.
+    """
+
+    data = resultado["data"]
+    grid_x = resultado["grid_x"]
+    grid_y = resultado["grid_y"]
+    grid_z = resultado["grid_z"]
+
+    fig, ax = plt.subplots(
+        figsize=figsize
+    )
+
+    contour = ax.contourf(
+        grid_x,
+        grid_y,
+        grid_z,
+        levels=levels,
+        cmap=cmap,
+    )
+
+    cbar = fig.colorbar(
+        contour,
+        ax=ax,
+    )
+
+    cbar.set_label(
+        colorbar_label
+    )
+
+    # --------------------------------------------------------
+    # ESTACIONES
+    # --------------------------------------------------------
+
+    if show_stations:
+
+        ax.scatter(
+            data[col_lon],
+            data[col_lat],
+            c="black",
+            s=30,
+            edgecolors="white",
+            label="Stations",
+            zorder=4,
+        )
+
+    # --------------------------------------------------------
+    # ETIQUETAS
+    # --------------------------------------------------------
+
+    if (
+        show_labels
+        and col_label in data.columns
+    ):
+
+        for _, row in data.iterrows():
+
+            ax.text(
+                row[col_lon] + label_dx,
+                row[col_lat] + label_dy,
+                str(
+                    row[col_label]
+                ),
+                fontsize=7,
+                color="black",
+                zorder=5,
+            )
+
+    # --------------------------------------------------------
+    # LÍMITE TERRITORIAL
+    # --------------------------------------------------------
+
+    if gdf_limite is not None:
+
+        limite = gdf_limite.copy()
+
+        if limite.crs is not None:
+            limite = limite.to_crs(
+                "EPSG:4326"
+            )
+
+        limite.boundary.plot(
+            ax=ax,
+            color="black",
+            linewidth=1.3,
+            zorder=6,
+        )
+
+    # --------------------------------------------------------
+    # FORMATO
+    # --------------------------------------------------------
+
+    ax.set_title(
+        title,
+        loc="left",
+    )
+
+    ax.set_xlabel(
+        "Longitude"
+    )
+
+    ax.set_ylabel(
+        "Latitude"
+    )
+
+    if show_stations:
+        ax.legend()
+
+    ax.grid(
+        True
+    )
+
+    fig.tight_layout()
+
+    return fig, ax
 
 # ============================================================
 # CÁLCULO DE NIVELES
