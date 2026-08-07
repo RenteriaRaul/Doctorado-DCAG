@@ -56,7 +56,7 @@ COL_NOMBRE = "NOMBRE"
 
 # Configuración de interpolación
 METODO = "linear"
-RELLENAR_EXTERIOR = False
+RELLENAR_EXTERIOR = True
 
 # Resolución de la malla
 NX = 300
