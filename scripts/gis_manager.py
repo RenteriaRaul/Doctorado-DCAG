@@ -553,7 +553,7 @@ class GISManager:
 
         return gdf
     
-        # ========================================================
+    # ========================================================
     # OBTENER MUNICIPIOS DE UNA ENTIDAD
     # ========================================================
 
@@ -786,5 +786,590 @@ class GISManager:
             )
 
         return resultado.reset_index(
+            drop=True
+        )
+        
+    # ========================================================
+    # OBTENER LOCALIDADES DE UN MUNICIPIO
+    # ========================================================
+
+    def obtener_localidades(
+        self,
+        estado,
+        municipio=None,
+        crs_destino="EPSG:4326",
+        territorio="completo",
+    ):
+        """
+        Obtiene localidades urbanas y rurales amanzanadas.
+
+        Parámetros
+        ----------
+        estado : str
+            Clave o nombre de la entidad.
+
+        municipio : str o None
+            Nombre o clave municipal.
+            Si es None, devuelve todas las localidades del estado.
+
+        crs_destino : str o CRS
+            CRS final del GeoDataFrame.
+
+        territorio : str
+            "completo":
+                Conserva todas las partes de la geometría.
+
+            "principal":
+                Si una localidad es MultiPolygon, conserva
+                únicamente el polígono de mayor superficie.
+
+        Retorna
+        -------
+        gdf : geopandas.GeoDataFrame
+            Localidades solicitadas.
+        """
+
+        clave_ent, nombre_ent = self.resolver_estado(
+            estado
+        )
+
+        nombre_shp = f"{clave_ent}l.shp"
+
+        gdf = self.cargar_shapefile(
+            estado=clave_ent,
+            nombre_shp=nombre_shp,
+            crs_destino=crs_destino,
+        )
+
+        if gdf.empty:
+            raise ValueError(
+                f"La capa de localidades de "
+                f"{nombre_ent} está vacía."
+            )
+
+        # ----------------------------------------------------
+        # VALIDAR ENTIDAD
+        # ----------------------------------------------------
+
+        if "CVE_ENT" in gdf.columns:
+
+            claves = (
+                gdf["CVE_ENT"]
+                .astype(str)
+                .str.zfill(2)
+                .unique()
+            )
+
+            if clave_ent not in claves:
+                raise ValueError(
+                    f"La capa '{nombre_shp}' no corresponde "
+                    f"a la entidad {nombre_ent} ({clave_ent})."
+                )
+
+        # ----------------------------------------------------
+        # FILTRAR MUNICIPIO
+        # ----------------------------------------------------
+
+        if municipio is not None:
+
+            gdf_municipio = self.obtener_municipio(
+                estado=estado,
+                municipio=municipio,
+                crs_destino=crs_destino,
+                territorio="completo",
+            )
+
+            if "CVE_MUN" not in gdf_municipio.columns:
+                raise ValueError(
+                    "La capa municipal no contiene CVE_MUN."
+                )
+
+            clave_mun = (
+                str(
+                    gdf_municipio.iloc[0]["CVE_MUN"]
+                )
+                .zfill(3)
+            )
+
+            gdf = gdf[
+                gdf["CVE_MUN"]
+                .astype(str)
+                .str.zfill(3)
+                == clave_mun
+            ].copy()
+
+        # ----------------------------------------------------
+        # VALIDAR TERRITORIO
+        # ----------------------------------------------------
+
+        territorio = (
+            str(territorio)
+            .strip()
+            .lower()
+        )
+
+        if territorio not in {
+            "completo",
+            "principal",
+        }:
+            raise ValueError(
+                "territorio debe ser "
+                "'completo' o 'principal'."
+            )
+
+        # ----------------------------------------------------
+        # CONSERVAR POLÍGONO PRINCIPAL
+        # ----------------------------------------------------
+
+        if territorio == "principal":
+
+            filas = []
+
+            for _, row in gdf.iterrows():
+
+                geom = row.geometry
+
+                if geom is None or geom.is_empty:
+                    continue
+
+                if geom.geom_type == "MultiPolygon":
+
+                    partes = list(
+                        geom.geoms
+                    )
+
+                    if partes:
+
+                        serie_partes = gpd.GeoSeries(
+                            partes,
+                            crs=gdf.crs,
+                        )
+
+                        areas = (
+                            serie_partes
+                            .to_crs("EPSG:6933")
+                            .area
+                        )
+
+                        indice = int(
+                            np.argmax(
+                                areas.to_numpy()
+                            )
+                        )
+
+                        geom = partes[indice]
+
+                nueva_fila = row.copy()
+                nueva_fila.geometry = geom
+
+                filas.append(
+                    nueva_fila
+                )
+
+            gdf = gpd.GeoDataFrame(
+                filas,
+                columns=gdf.columns,
+                crs=gdf.crs,
+            ).reset_index(
+                drop=True
+            )
+
+        return gdf.reset_index(
+            drop=True
+        )
+
+
+    # ========================================================
+    # OBTENER UNA LOCALIDAD
+    # ========================================================
+
+    def obtener_localidad(
+        self,
+        estado,
+        municipio,
+        localidad,
+        crs_destino="EPSG:4326",
+        territorio="completo",
+    ):
+        """
+        Obtiene una localidad específica por nombre o clave.
+
+        Parámetros
+        ----------
+        estado : str
+            Clave o nombre de la entidad.
+
+        municipio : str
+            Nombre o clave municipal.
+
+        localidad : str
+            Nombre o clave de localidad.
+
+            Ejemplos:
+            "Manzanillo"
+            "0001"
+
+        crs_destino : str o CRS
+            CRS final.
+
+        territorio : str
+            "completo" o "principal".
+
+        Retorna
+        -------
+        gdf : geopandas.GeoDataFrame
+            Localidad solicitada.
+        """
+
+        gdf = self.obtener_localidades(
+            estado=estado,
+            municipio=municipio,
+            crs_destino=crs_destino,
+            territorio=territorio,
+        )
+
+        texto = str(
+            localidad
+        ).strip()
+
+        # ----------------------------------------------------
+        # BUSCAR POR CLAVE
+        # ----------------------------------------------------
+
+        if (
+            "CVE_LOC" in gdf.columns
+            and texto.isdigit()
+        ):
+
+            clave_loc = (
+                texto.zfill(4)
+            )
+
+            resultado = gdf[
+                gdf["CVE_LOC"]
+                .astype(str)
+                .str.zfill(4)
+                == clave_loc
+            ].copy()
+
+        # ----------------------------------------------------
+        # BUSCAR POR NOMBRE
+        # ----------------------------------------------------
+
+        else:
+
+            if "NOMGEO" not in gdf.columns:
+                raise ValueError(
+                    "La capa de localidades no contiene "
+                    "la columna NOMGEO."
+                )
+
+            resultado = gdf[
+                gdf["NOMGEO"]
+                .astype(str)
+                .str.casefold()
+                == texto.casefold()
+            ].copy()
+
+        if resultado.empty:
+            raise ValueError(
+                f"No se encontró la localidad "
+                f"'{localidad}' dentro del municipio "
+                f"'{municipio}', {estado}."
+            )
+
+        return resultado.reset_index(
+            drop=True
+        )   
+    # ========================================================
+    # OBTENER AGEB URBANAS
+    # ========================================================
+
+    def obtener_ageb_urbanas(
+        self,
+        estado,
+        municipio=None,
+        localidad=None,
+        crs_destino="EPSG:4326",
+        territorio="completo",
+    ):
+        """
+        Obtiene Áreas Geoestadísticas Básicas urbanas.
+
+        Puede filtrarse por:
+        - estado
+        - municipio
+        - localidad
+
+        Parámetros
+        ----------
+        estado : str
+            Clave o nombre de la entidad.
+
+        municipio : str o None
+            Nombre o clave municipal.
+
+        localidad : str o None
+            Nombre o clave de localidad.
+
+        crs_destino : str o CRS
+            CRS final.
+
+        territorio : str
+            "completo" o "principal".
+
+        Retorna
+        -------
+        geopandas.GeoDataFrame
+        """
+
+        clave_ent, nombre_ent = self.resolver_estado(
+            estado
+        )
+
+        nombre_shp = f"{clave_ent}a.shp"
+
+        gdf = self.cargar_shapefile(
+            estado=clave_ent,
+            nombre_shp=nombre_shp,
+            crs_destino=crs_destino,
+        )
+
+        if gdf.empty:
+            raise ValueError(
+                f"La capa de AGEB urbanas de "
+                f"{nombre_ent} está vacía."
+            )
+
+        # ----------------------------------------------------
+        # MUNICIPIO
+        # ----------------------------------------------------
+
+        if municipio is not None:
+
+            gdf_municipio = self.obtener_municipio(
+                estado=estado,
+                municipio=municipio,
+                crs_destino=crs_destino,
+                territorio="completo",
+            )
+
+            clave_mun = (
+                str(
+                    gdf_municipio.iloc[0]["CVE_MUN"]
+                )
+                .zfill(3)
+            )
+
+            gdf = gdf[
+                gdf["CVE_MUN"]
+                .astype(str)
+                .str.zfill(3)
+                == clave_mun
+            ].copy()
+
+        # ----------------------------------------------------
+        # LOCALIDAD
+        # ----------------------------------------------------
+
+        if localidad is not None:
+
+            if municipio is None:
+                raise ValueError(
+                    "Para filtrar por localidad debe "
+                    "especificarse también el municipio."
+                )
+
+            gdf_localidad = self.obtener_localidad(
+                estado=estado,
+                municipio=municipio,
+                localidad=localidad,
+                crs_destino=crs_destino,
+                territorio="completo",
+            )
+
+            clave_loc = (
+                str(
+                    gdf_localidad.iloc[0]["CVE_LOC"]
+                )
+                .zfill(4)
+            )
+
+            gdf = gdf[
+                gdf["CVE_LOC"]
+                .astype(str)
+                .str.zfill(4)
+                == clave_loc
+            ].copy()
+
+        # ----------------------------------------------------
+        # VALIDAR RESULTADO
+        # ----------------------------------------------------
+
+        if gdf.empty:
+            raise ValueError(
+                "No se encontraron AGEB urbanas "
+                "para los criterios solicitados."
+            )
+
+        return self._aplicar_territorio_principal(
+            gdf=gdf,
+            territorio=territorio,
+        )
+    # ========================================================
+    # OBTENER AGEB RURALES
+    # ========================================================
+
+    def obtener_ageb_rurales(
+        self,
+        estado,
+        municipio=None,
+        crs_destino="EPSG:4326",
+        territorio="completo",
+    ):
+        """
+        Obtiene Áreas Geoestadísticas Básicas rurales.
+
+        Las AGEB rurales se filtran por estado y municipio.
+        """
+
+        clave_ent, nombre_ent = self.resolver_estado(
+            estado
+        )
+
+        nombre_shp = f"{clave_ent}ar.shp"
+
+        gdf = self.cargar_shapefile(
+            estado=clave_ent,
+            nombre_shp=nombre_shp,
+            crs_destino=crs_destino,
+        )
+
+        if gdf.empty:
+            raise ValueError(
+                f"La capa de AGEB rurales de "
+                f"{nombre_ent} está vacía."
+            )
+
+        if municipio is not None:
+
+            gdf_municipio = self.obtener_municipio(
+                estado=estado,
+                municipio=municipio,
+                crs_destino=crs_destino,
+                territorio="completo",
+            )
+
+            clave_mun = (
+                str(
+                    gdf_municipio.iloc[0]["CVE_MUN"]
+                )
+                .zfill(3)
+            )
+
+            gdf = gdf[
+                gdf["CVE_MUN"]
+                .astype(str)
+                .str.zfill(3)
+                == clave_mun
+            ].copy()
+            
+        if gdf.empty:
+            raise ValueError(
+                "No se encontraron AGEB rurales "
+                "para los criterios solicitados."
+            )
+            
+        return self._aplicar_territorio_principal(
+            gdf=gdf,
+            territorio=territorio,
+        )
+    # ========================================================
+    # NORMALIZAR TERRITORIO PRINCIPAL
+    # ========================================================
+
+    def _aplicar_territorio_principal(
+        self,
+        gdf,
+        territorio="completo",
+    ):
+        """
+        Conserva la geometría completa o únicamente el
+        polígono principal de cada registro.
+
+        Se utiliza internamente para estados, municipios,
+        localidades y AGEB.
+        """
+
+        if gdf is None or gdf.empty:
+            return gdf
+
+        territorio = (
+            str(territorio)
+            .strip()
+            .lower()
+        )
+
+        if territorio not in {
+            "completo",
+            "principal",
+        }:
+            raise ValueError(
+                "territorio debe ser "
+                "'completo' o 'principal'."
+            )
+
+        if territorio == "completo":
+            return gdf.reset_index(
+                drop=True
+            )
+
+        filas = []
+
+        for _, row in gdf.iterrows():
+
+            geom = row.geometry
+
+            if geom is None or geom.is_empty:
+                continue
+
+            if geom.geom_type == "MultiPolygon":
+
+                partes = list(
+                    geom.geoms
+                )
+
+                if partes:
+
+                    serie = gpd.GeoSeries(
+                        partes,
+                        crs=gdf.crs,
+                    )
+
+                    areas = (
+                        serie
+                        .to_crs("EPSG:6933")
+                        .area
+                        .to_numpy()
+                    )
+
+                    geom = partes[
+                        int(
+                            np.argmax(areas)
+                        )
+                    ]
+
+            nueva_fila = row.copy()
+            nueva_fila.geometry = geom
+
+            filas.append(
+                nueva_fila
+            )
+
+        return gpd.GeoDataFrame(
+            filas,
+            columns=gdf.columns,
+            crs=gdf.crs,
+        ).reset_index(
             drop=True
         )

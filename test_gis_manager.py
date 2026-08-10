@@ -395,7 +395,539 @@ def main():
     print(
         municipio_prueba.geom_type.tolist()
     )
+        # --------------------------------------------------------
+    # INSPECCIONAR LOCALIDADES DE COLIMA
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA DE LOCALIDADES — COLIMA")
+    print("=" * 72)
+
+    gdf_localidades = gis.cargar_shapefile(
+        estado="Colima",
+        nombre_shp="06l.shp",
+        crs_destino="EPSG:4326",
+    )
+
+    print()
+    print(
+        f"Localidades encontradas en el estado: "
+        f"{len(gdf_localidades)}"
+    )
+
+    print()
+    print("Columnas:")
+    print(
+        list(gdf_localidades.columns)
+    )
+
+    print()
+    print("CRS:")
+    print(
+        gdf_localidades.crs
+    )
+
+    print()
+    print("Tipos de geometría:")
+    print(
+        gdf_localidades.geom_type.value_counts()
+    )
+
+    print()
+    print("Bounds:")
+    print(
+        gdf_localidades.total_bounds
+    )
+
+    # --------------------------------------------------------
+    # FILTRAR MUNICIPIO DE MANZANILLO
+    # --------------------------------------------------------
+
+    localidades_manzanillo = gdf_localidades[
+        gdf_localidades["CVE_MUN"]
+        .astype(str)
+        .str.zfill(3)
+        == "007"
+    ].copy()
+
+    print()
+    print(
+        "Localidades amanzanadas del municipio "
+        "de Manzanillo:"
+    )
+    print("-" * 72)
+
+    columnas_mostrar = [
+        columna
+        for columna in [
+            "CVEGEO",
+            "CVE_ENT",
+            "CVE_MUN",
+            "CVE_LOC",
+            "NOMGEO",
+            "AMBITO",
+            "ÁMBITO",
+        ]
+        if columna in localidades_manzanillo.columns
+    ]
+
+    print(
+        localidades_manzanillo[
+            columnas_mostrar
+        ]
+        .sort_values(
+            by="NOMGEO"
+        )
+        .to_string(
+            index=False
+        )
+    )
+
+    print()
+    print(
+        "Total de localidades amanzanadas "
+        f"en Manzanillo: {len(localidades_manzanillo)}"
+    )
     
+        # --------------------------------------------------------
+    # PROBAR obtener_localidades()
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA obtener_localidades()")
+    print("=" * 72)
+
+    localidades_manzanillo = gis.obtener_localidades(
+        estado="Colima",
+        municipio="Manzanillo",
+        crs_destino="EPSG:4326",
+        territorio="principal",
+    )
+
+    print()
+    print(
+        f"Localidades obtenidas: "
+        f"{len(localidades_manzanillo)}"
+    )
+
+    print()
+    print(
+        localidades_manzanillo[
+            [
+                "CVEGEO",
+                "CVE_MUN",
+                "CVE_LOC",
+                "NOMGEO",
+                "AMBITO",
+            ]
+        ]
+        .sort_values("NOMGEO")
+        .to_string(index=False)
+    )
+
+    # --------------------------------------------------------
+    # PROBAR obtener_localidad()
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA obtener_localidad()")
+    print("=" * 72)
+
+    localidad_manzanillo = gis.obtener_localidad(
+        estado="Colima",
+        municipio="Manzanillo",
+        localidad="Manzanillo",
+        crs_destino="EPSG:4326",
+        territorio="principal",
+    )
+
+    print()
+    print("Localidad obtenida:")
+    print(
+        localidad_manzanillo[
+            [
+                "CVEGEO",
+                "CVE_MUN",
+                "CVE_LOC",
+                "NOMGEO",
+                "AMBITO",
+            ]
+        ].to_string(
+            index=False
+        )
+    )
+
+    print()
+    print("Bounds:")
+    print(
+        localidad_manzanillo.total_bounds
+    )
+
+    print()
+    print("Geometría:")
+    print(
+        localidad_manzanillo.geom_type.tolist()
+    )
+        # --------------------------------------------------------
+    # INSPECCIONAR AGEB URBANAS
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA AGEB URBANAS — COLIMA")
+    print("=" * 72)
+
+    gdf_ageb_urbanas = gis.cargar_shapefile(
+        estado="Colima",
+        nombre_shp="06a.shp",
+        crs_destino="EPSG:4326",
+    )
+
+    print()
+    print(
+        f"AGEB urbanas encontradas en el estado: "
+        f"{len(gdf_ageb_urbanas)}"
+    )
+
+    print()
+    print("Columnas:")
+    print(
+        list(gdf_ageb_urbanas.columns)
+    )
+
+    print()
+    print("CRS:")
+    print(
+        gdf_ageb_urbanas.crs
+    )
+
+    print()
+    print("Tipos de geometría:")
+    print(
+        gdf_ageb_urbanas.geom_type.value_counts()
+    )
+
+    print()
+    print("Bounds:")
+    print(
+        gdf_ageb_urbanas.total_bounds
+    )
+
+    # --------------------------------------------------------
+    # FILTRAR AGEB URBANAS DE MANZANILLO
+    # --------------------------------------------------------
+
+    ageb_urbanas_manzanillo = gdf_ageb_urbanas[
+        gdf_ageb_urbanas["CVE_MUN"]
+        .astype(str)
+        .str.zfill(3)
+        == "007"
+    ].copy()
+
+    print()
+    print(
+        "AGEB urbanas del municipio de Manzanillo:"
+    )
+    print("-" * 72)
+
+    columnas_ageb_urbanas = [
+        columna
+        for columna in [
+            "CVEGEO",
+            "CVE_ENT",
+            "CVE_MUN",
+            "CVE_LOC",
+            "CVE_AGEB",
+        ]
+        if columna in ageb_urbanas_manzanillo.columns
+    ]
+
+    print(
+        ageb_urbanas_manzanillo[
+            columnas_ageb_urbanas
+        ]
+        .sort_values(
+            by=[
+                columna
+                for columna in [
+                    "CVE_LOC",
+                    "CVE_AGEB",
+                ]
+                if columna in ageb_urbanas_manzanillo.columns
+            ]
+        )
+        .to_string(
+            index=False
+        )
+    )
+
+    print()
+    print(
+        "Total de AGEB urbanas en Manzanillo: "
+        f"{len(ageb_urbanas_manzanillo)}"
+    )
+
+    # --------------------------------------------------------
+    # AGEB URBANAS DE LA LOCALIDAD MANZANILLO
+    # --------------------------------------------------------
+
+    if "CVE_LOC" in ageb_urbanas_manzanillo.columns:
+
+        ageb_localidad_manzanillo = (
+            ageb_urbanas_manzanillo[
+                ageb_urbanas_manzanillo["CVE_LOC"]
+                .astype(str)
+                .str.zfill(4)
+                == "0001"
+            ].copy()
+        )
+
+        print()
+        print(
+            "AGEB urbanas de la localidad Manzanillo "
+            "(CVE_LOC = 0001):"
+        )
+        print("-" * 72)
+
+        print(
+            ageb_localidad_manzanillo[
+                columnas_ageb_urbanas
+            ].to_string(
+                index=False
+            )
+        )
+
+        print()
+        print(
+            "Total de AGEB urbanas en la localidad "
+            f"Manzanillo: {len(ageb_localidad_manzanillo)}"
+        )
+
+    # --------------------------------------------------------
+    # INSPECCIONAR AGEB RURALES
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA AGEB RURALES — COLIMA")
+    print("=" * 72)
+
+    gdf_ageb_rurales = gis.cargar_shapefile(
+        estado="Colima",
+        nombre_shp="06ar.shp",
+        crs_destino="EPSG:4326",
+    )
+
+    print()
+    print(
+        f"AGEB rurales encontradas en el estado: "
+        f"{len(gdf_ageb_rurales)}"
+    )
+
+    print()
+    print("Columnas:")
+    print(
+        list(gdf_ageb_rurales.columns)
+    )
+
+    print()
+    print("CRS:")
+    print(
+        gdf_ageb_rurales.crs
+    )
+
+    print()
+    print("Tipos de geometría:")
+    print(
+        gdf_ageb_rurales.geom_type.value_counts()
+    )
+
+    print()
+    print("Bounds:")
+    print(
+        gdf_ageb_rurales.total_bounds
+    )
+
+    # --------------------------------------------------------
+    # FILTRAR AGEB RURALES DE MANZANILLO
+    # --------------------------------------------------------
+
+    ageb_rurales_manzanillo = gdf_ageb_rurales[
+        gdf_ageb_rurales["CVE_MUN"]
+        .astype(str)
+        .str.zfill(3)
+        == "007"
+    ].copy()
+
+    print()
+    print(
+        "AGEB rurales del municipio de Manzanillo:"
+    )
+    print("-" * 72)
+
+    columnas_ageb_rurales = [
+        columna
+        for columna in [
+            "CVEGEO",
+            "CVE_ENT",
+            "CVE_MUN",
+            "CVE_AGEB",
+        ]
+        if columna in ageb_rurales_manzanillo.columns
+    ]
+
+    print(
+        ageb_rurales_manzanillo[
+            columnas_ageb_rurales
+        ]
+        .sort_values(
+            by="CVE_AGEB"
+        )
+        .to_string(
+            index=False
+        )
+    )
+
+    print()
+    print(
+        "Total de AGEB rurales en Manzanillo: "
+        f"{len(ageb_rurales_manzanillo)}"
+    )
+  
+      # --------------------------------------------------------
+    # PROBAR obtener_ageb_urbanas()
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA obtener_ageb_urbanas()")
+    print("=" * 72)
+
+    ageb_urbanas_manzanillo = gis.obtener_ageb_urbanas(
+        estado="Colima",
+        municipio="Manzanillo",
+        localidad="Manzanillo",
+        crs_destino="EPSG:4326",
+        territorio="principal",
+    )
+
+    print()
+    print(
+        "AGEB urbanas de la localidad Manzanillo: "
+        f"{len(ageb_urbanas_manzanillo)}"
+    )
+
+    print()
+    print("Primeras 10 AGEB urbanas:")
+    print("-" * 72)
+
+    print(
+        ageb_urbanas_manzanillo[
+            [
+                "CVEGEO",
+                "CVE_MUN",
+                "CVE_LOC",
+                "CVE_AGEB",
+            ]
+        ]
+        .head(10)
+        .to_string(
+            index=False
+        )
+    )
+
+    print()
+    print("Tipos de geometría:")
+    print(
+        ageb_urbanas_manzanillo
+        .geom_type
+        .value_counts()
+    )
+
+    print()
+    print("Bounds:")
+    print(
+        ageb_urbanas_manzanillo.total_bounds
+    )
+
+    # --------------------------------------------------------
+    # PROBAR obtener_ageb_rurales()
+    # --------------------------------------------------------
+
+    print()
+    print("=" * 72)
+    print("PRUEBA obtener_ageb_rurales()")
+    print("=" * 72)
+
+    ageb_rurales_manzanillo = gis.obtener_ageb_rurales(
+        estado="Colima",
+        municipio="Manzanillo",
+        crs_destino="EPSG:4326",
+        territorio="principal",
+    )
+
+    print()
+    print(
+        "AGEB rurales del municipio de Manzanillo: "
+        f"{len(ageb_rurales_manzanillo)}"
+    )
+
+    print()
+    print("AGEB rurales:")
+    print("-" * 72)
+
+    print(
+        ageb_rurales_manzanillo[
+            [
+                "CVEGEO",
+                "CVE_MUN",
+                "CVE_AGEB",
+            ]
+        ]
+        .sort_values(
+            "CVE_AGEB"
+        )
+        .to_string(
+            index=False
+        )
+    )
+
+    print()
+    print("Tipos de geometría:")
+    print(
+        ageb_rurales_manzanillo
+        .geom_type
+        .value_counts()
+    )
+
+    print()
+    print("Bounds:")
+    print(
+        ageb_rurales_manzanillo.total_bounds
+    )
+
+    # --------------------------------------------------------
+    # VALIDACIÓN AUTOMÁTICA
+    # --------------------------------------------------------
+
+    if len(ageb_urbanas_manzanillo) != 133:
+        raise ValueError(
+            "Se esperaban 133 AGEB urbanas "
+            "para la localidad de Manzanillo."
+        )
+
+    if len(ageb_rurales_manzanillo) != 12:
+        raise ValueError(
+            "Se esperaban 12 AGEB rurales "
+            "para el municipio de Manzanillo."
+        )
+
+    print()
+    print("Validación AGEB correcta.")
+  
     # --------------------------------------------------------
     # FIN
     # --------------------------------------------------------
