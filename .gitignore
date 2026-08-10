@@ -23,3 +23,9 @@ Thumbs.db
 # Temporales
 tmp/
 temp/
+
+# Resultados temporales / pruebas
+
+results/test_mapas/
+results/test_territorial_mapping/
+results/streamlit/
