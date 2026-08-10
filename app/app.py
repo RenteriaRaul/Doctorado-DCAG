@@ -3,7 +3,6 @@ from pathlib import Path
 import streamlit as st
 import sys 
 
-from pathlib import Path
 from components.sidebar_brand import render_sidebar_brand
 from components.sidebar_status import render_sidebar_status
 from components.styles import load_css
