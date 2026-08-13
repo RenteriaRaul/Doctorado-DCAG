@@ -5,6 +5,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from scripts.conagua_reader import leer_lote_conagua
 
 # ============================================================
 # UTILIDADES INTERNAS
@@ -480,7 +481,685 @@ def procesar_excedencia_batch_csv(
         out_log,
     )
 
+# ============================================================
+# LIMPIEZA DE PRECIPITACIÓN DESDE DATAFRAME
+# ============================================================
 
+def limpiar_precipitacion_dataframe(
+    df,
+    col_precip="pp",
+    col_fecha="date",
+    consolidar_duplicados=True,
+):
+    """
+    Limpia una serie diaria de precipitación previamente cargada.
+
+    Esta función permite aplicar las mismas reglas de control de
+    calidad utilizadas para los CSV a datos provenientes directamente
+    del lector de archivos originales CONAGUA.
+
+    Parámetros
+    ----------
+    df : pd.DataFrame
+        Serie climática de una estación.
+
+    col_precip : str
+        Columna de precipitación.
+
+    col_fecha : str o None
+        Columna de fecha.
+
+    consolidar_duplicados : bool
+        Si True, consolida fechas duplicadas utilizando la
+        precipitación máxima diaria.
+
+    Retorna
+    -------
+    df_clean : pd.DataFrame
+        Datos válidos para el análisis.
+
+    calidad : dict
+        Métricas de control de calidad.
+    """
+
+    if not isinstance(
+        df,
+        pd.DataFrame,
+    ):
+        raise TypeError(
+            "Los datos de la estación deben ser un DataFrame."
+        )
+
+    if col_precip not in df.columns:
+        raise ValueError(
+            f"No existe la columna de precipitación "
+            f"'{col_precip}'."
+        )
+
+    if (
+        col_fecha is not None
+        and col_fecha not in df.columns
+    ):
+        raise ValueError(
+            f"No existe la columna de fecha "
+            f"'{col_fecha}'."
+        )
+
+    df = df.copy()
+
+    total_registros_originales = len(
+        df
+    )
+
+    # --------------------------------------------------------
+    # PRECIPITACIÓN
+    # --------------------------------------------------------
+
+    df[col_precip] = pd.to_numeric(
+        df[col_precip],
+        errors="coerce",
+    )
+
+    registros_precipitacion_nulos = int(
+        df[col_precip]
+        .isna()
+        .sum()
+    )
+
+    registros_negativos = int(
+        (
+            df[col_precip] < 0
+        ).sum()
+    )
+
+    # --------------------------------------------------------
+    # FECHA
+    # --------------------------------------------------------
+
+    if col_fecha is not None:
+
+        df[col_fecha] = pd.to_datetime(
+            df[col_fecha],
+            errors="coerce",
+        )
+
+        registros_fecha_nulos = int(
+            df[col_fecha]
+            .isna()
+            .sum()
+        )
+
+        df_clean = df.dropna(
+            subset=[
+                col_fecha,
+                col_precip,
+            ]
+        ).copy()
+
+    else:
+
+        registros_fecha_nulos = 0
+
+        df_clean = df.dropna(
+            subset=[
+                col_precip
+            ]
+        ).copy()
+
+    # --------------------------------------------------------
+    # PRECIPITACIONES NEGATIVAS
+    # --------------------------------------------------------
+
+    df_clean = df_clean[
+        df_clean[col_precip] >= 0
+    ].copy()
+
+    # --------------------------------------------------------
+    # DUPLICADOS
+    # --------------------------------------------------------
+
+    duplicados_fecha = 0
+
+    if (
+        col_fecha is not None
+        and consolidar_duplicados
+    ):
+
+        duplicados_fecha = int(
+            df_clean.duplicated(
+                subset=[
+                    col_fecha
+                ],
+                keep=False,
+            ).sum()
+        )
+
+        df_clean = (
+            df_clean
+            .sort_values(
+                col_fecha
+            )
+            .groupby(
+                col_fecha,
+                as_index=False,
+            )[col_precip]
+            .max()
+        )
+
+    # --------------------------------------------------------
+    # COBERTURA TEMPORAL
+    # --------------------------------------------------------
+
+    if (
+        col_fecha is not None
+        and not df_clean.empty
+    ):
+
+        fecha_inicio = df_clean[
+            col_fecha
+        ].min()
+
+        fecha_fin = df_clean[
+            col_fecha
+        ].max()
+
+        n_anios = int(
+            df_clean[
+                col_fecha
+            ]
+            .dt.year
+            .nunique()
+        )
+
+    else:
+
+        fecha_inicio = pd.NaT
+        fecha_fin = pd.NaT
+        n_anios = np.nan
+
+    calidad = {
+        "total_registros_originales": (
+            total_registros_originales
+        ),
+        "registros_precipitacion_nulos": (
+            registros_precipitacion_nulos
+        ),
+        "registros_fecha_nulos": (
+            registros_fecha_nulos
+        ),
+        "registros_negativos": (
+            registros_negativos
+        ),
+        "duplicados_fecha_detectados": (
+            duplicados_fecha
+        ),
+        "total_dias_validos": len(
+            df_clean
+        ),
+        "fecha_inicio": fecha_inicio,
+        "fecha_fin": fecha_fin,
+        "n_anios": n_anios,
+    }
+
+    return (
+        df_clean,
+        calidad,
+    )
+
+
+# ============================================================
+# EXCEDENCIA DESDE ESTACIÓN CONAGUA
+# ============================================================
+
+def calcular_excedencia_estacion_conagua(
+    estacion,
+    threshold=50.0,
+    consolidar_duplicados=True,
+):
+    """
+    Calcula la probabilidad empírica de excedencia para una
+    estación previamente leída por conagua_reader.py.
+
+    Parámetros
+    ----------
+    estacion : dict
+        Estructura generada por leer_estacion_conagua().
+
+    threshold : float
+        Umbral de precipitación en milímetros.
+
+    consolidar_duplicados : bool
+        Si True, consolida fechas duplicadas usando el máximo
+        diario.
+
+    Retorna
+    -------
+    dict
+        Metadatos espaciales, métricas de excedencia y control
+        de calidad.
+    """
+
+    threshold = _validar_threshold(
+        threshold
+    )
+
+    if not isinstance(
+        estacion,
+        dict,
+    ):
+        raise TypeError(
+            "La estación debe ser la estructura generada "
+            "por conagua_reader.py."
+        )
+
+    if "metadata" not in estacion:
+        raise ValueError(
+            "La estación no contiene metadatos."
+        )
+
+    if "data" not in estacion:
+        raise ValueError(
+            "La estación no contiene datos climáticos."
+        )
+
+    metadata = estacion[
+        "metadata"
+    ]
+
+    data = estacion[
+        "data"
+    ]
+
+    df_validos, calidad = (
+        limpiar_precipitacion_dataframe(
+            df=data,
+            col_precip="pp",
+            col_fecha="date",
+            consolidar_duplicados=(
+                consolidar_duplicados
+            ),
+        )
+    )
+
+    total_dias = len(
+        df_validos
+    )
+
+    dias_excedencia = int(
+        (
+            df_validos["pp"]
+            >= threshold
+        ).sum()
+    )
+
+    if total_dias > 0:
+        prob_excedencia = (
+            dias_excedencia
+            / total_dias
+        )
+    else:
+        prob_excedencia = np.nan
+
+    nombre_columna = (
+        _nombre_columna_excedencia(
+            threshold
+        )
+    )
+
+    resultado = {
+        "station": metadata.get(
+            "station"
+        ),
+        "nombre": metadata.get(
+            "nombre"
+        ),
+        "estado": metadata.get(
+            "estado"
+        ),
+        "municipio": metadata.get(
+            "municipio"
+        ),
+        "situacion": metadata.get(
+            "situacion"
+        ),
+        "latitud": metadata.get(
+            "latitud"
+        ),
+        "longitud": metadata.get(
+            "longitud"
+        ),
+        "altitud_msnm": metadata.get(
+            "altitud_msnm"
+        ),
+        "archivo": metadata.get(
+            "archivo"
+        ),
+        "threshold_mm": threshold,
+        "total_dias": total_dias,
+        "dias_excedencia": dias_excedencia,
+        "prob_excedencia": prob_excedencia,
+        nombre_columna: prob_excedencia,
+    }
+
+    resultado.update(
+        calidad
+    )
+
+    return resultado
+
+
+# ============================================================
+# PROCESAMIENTO BATCH DE ARCHIVOS ORIGINALES CONAGUA
+# ============================================================
+
+def procesar_excedencia_batch_conagua(
+    carpeta_estaciones,
+    patron="*.xlsx",
+    threshold=50.0,
+    consolidar_duplicados=True,
+    exportar=True,
+    nombre_salida_dir="_salidas_excedencias",
+):
+    """
+    Procesa directamente una carpeta de archivos originales
+    de estaciones CONAGUA.
+
+    Los metadatos y las coordenadas son obtenidos desde cada
+    archivo mediante conagua_reader.py.
+
+    No requiere archivos CSV intermedios ni una tabla auxiliar
+    de coordenadas.
+
+    Parámetros
+    ----------
+    carpeta_estaciones : str
+        Carpeta con archivos originales CONAGUA.
+
+    patron : str
+        Patrón de búsqueda de archivos Excel.
+
+    threshold : float
+        Umbral de precipitación en milímetros.
+
+    consolidar_duplicados : bool
+        Consolida registros repetidos por fecha utilizando
+        la precipitación máxima diaria.
+
+    exportar : bool
+        Si True, genera tabla maestra y log.
+
+    nombre_salida_dir : str
+        Carpeta donde se guardarán los resultados.
+
+    Retorna
+    -------
+    df_resultados : pd.DataFrame
+        Tabla maestra de excedencias con coordenadas.
+
+    log_df : pd.DataFrame
+        Log combinado de lectura y procesamiento.
+
+    out_resultados : str o None
+        Ruta del archivo maestro.
+
+    out_log : str o None
+        Ruta del log.
+    """
+
+    threshold = _validar_threshold(
+        threshold
+    )
+
+    (
+        estaciones,
+        metadata_df,
+        log_lectura,
+    ) = leer_lote_conagua(
+        carpeta=carpeta_estaciones,
+        patron=patron,
+    )
+
+    resultados = []
+    log_proceso = []
+
+    # --------------------------------------------------------
+    # PROCESAR ESTACIONES VÁLIDAS
+    # --------------------------------------------------------
+
+    for estacion in estaciones:
+
+        metadata = estacion.get(
+            "metadata",
+            {},
+        )
+
+        station = metadata.get(
+            "station"
+        )
+
+        archivo = metadata.get(
+            "archivo"
+        )
+
+        try:
+
+            resultado = (
+                calcular_excedencia_estacion_conagua(
+                    estacion=estacion,
+                    threshold=threshold,
+                    consolidar_duplicados=(
+                        consolidar_duplicados
+                    ),
+                )
+            )
+
+            resultados.append(
+                resultado
+            )
+
+            log_proceso.append(
+                {
+                    "station": station,
+                    "archivo": archivo,
+                    "status": "ok",
+                    "message": "",
+                    "total_dias": resultado[
+                        "total_dias"
+                    ],
+                    "dias_excedencia": resultado[
+                        "dias_excedencia"
+                    ],
+                    "prob_excedencia": resultado[
+                        "prob_excedencia"
+                    ],
+                }
+            )
+
+        except Exception as error:
+
+            log_proceso.append(
+                {
+                    "station": station,
+                    "archivo": archivo,
+                    "status": "error",
+                    "message": str(
+                        error
+                    ),
+                    "total_dias": np.nan,
+                    "dias_excedencia": np.nan,
+                    "prob_excedencia": np.nan,
+                }
+            )
+
+    df_resultados = pd.DataFrame(
+        resultados
+    )
+
+    log_proceso_df = pd.DataFrame(
+        log_proceso
+    )
+
+    # --------------------------------------------------------
+    # INCORPORAR ARCHIVOS QUE NO PUDO LEER CONAGUA_READER
+    # --------------------------------------------------------
+
+    errores_lectura = pd.DataFrame()
+
+    if (
+        log_lectura is not None
+        and not log_lectura.empty
+    ):
+
+        errores_lectura = log_lectura[
+            log_lectura[
+                "status"
+            ] != "ok"
+        ].copy()
+
+        if not errores_lectura.empty:
+
+            errores_lectura = (
+                errores_lectura.rename(
+                    columns={
+                        "mensaje": "message",
+                    }
+                )
+            )
+
+            for columna in [
+                "total_dias",
+                "dias_excedencia",
+                "prob_excedencia",
+            ]:
+                errores_lectura[
+                    columna
+                ] = np.nan
+
+            columnas_log = [
+                "station",
+                "archivo",
+                "status",
+                "message",
+                "total_dias",
+                "dias_excedencia",
+                "prob_excedencia",
+            ]
+
+            for columna in columnas_log:
+
+                if columna not in (
+                    errores_lectura.columns
+                ):
+                    errores_lectura[
+                        columna
+                    ] = np.nan
+
+            errores_lectura = (
+                errores_lectura[
+                    columnas_log
+                ]
+            )
+
+    # --------------------------------------------------------
+    # LOG FINAL
+    # --------------------------------------------------------
+
+    if errores_lectura.empty:
+
+        log_df = (
+            log_proceso_df.copy()
+        )
+
+    else:
+
+        log_df = pd.concat(
+            [
+                log_proceso_df,
+                errores_lectura,
+            ],
+            ignore_index=True,
+        )
+
+    # --------------------------------------------------------
+    # EXPORTACIÓN
+    # --------------------------------------------------------
+
+    out_resultados = None
+    out_log = None
+
+    if exportar:
+
+        dir_out = os.path.join(
+            str(
+                carpeta_estaciones
+            ),
+            nombre_salida_dir,
+        )
+
+        os.makedirs(
+            dir_out,
+            exist_ok=True,
+        )
+
+        fecha_tag = (
+            datetime.now()
+            .strftime(
+                "%Y%m%d_%H%M"
+            )
+        )
+
+        threshold_texto = (
+            str(
+                int(
+                    threshold
+                )
+            )
+            if float(
+                threshold
+            ).is_integer()
+            else str(
+                threshold
+            ).replace(
+                ".",
+                "_",
+            )
+        )
+
+        out_resultados = os.path.join(
+            dir_out,
+            (
+                "MASTER_excedencia_CONAGUA_"
+                f"{threshold_texto}mm_"
+                f"{fecha_tag}.csv"
+            ),
+        )
+
+        out_log = os.path.join(
+            dir_out,
+            (
+                "log_excedencia_CONAGUA_"
+                f"{threshold_texto}mm_"
+                f"{fecha_tag}.csv"
+            ),
+        )
+
+        df_resultados.to_csv(
+            out_resultados,
+            index=False,
+        )
+
+        log_df.to_csv(
+            out_log,
+            index=False,
+        )
+
+    return (
+        df_resultados,
+        log_df,
+        out_resultados,
+        out_log,
+    )
+    
 # ============================================================
 # EXCEDENCIA PARA UNA ESTACIÓN EXCEL
 # ============================================================
