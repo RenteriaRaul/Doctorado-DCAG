@@ -11,6 +11,19 @@ from scripts.batch_return_levels import (
 from scripts.conagua_reader import (
     leer_lote_conagua,
 )
+from scripts.gev_persistence import (
+    cargar_ejecucion_gev,
+    formato_fecha_ejecucion,
+    guardar_ejecucion_gev,
+    listar_ejecuciones_gev,
+)
+from scripts.gev_quality import (
+    clasificar_calidad_bootstrap,
+)
+from scripts.gev_results import (
+    preparar_maestro_exportacion,
+    preparar_maestro_visual,
+)
 
 
 # ============================================================
@@ -44,66 +57,17 @@ if "gev_batch_result" not in st.session_state:
 # FUNCIONES AUXILIARES
 # ============================================================
 
-def interpretar_calidad_bootstrap(
-    aceptadas,
-    solicitadas,
-):
-    """
-    Clasifica de forma descriptiva la proporción de
-    réplicas Bootstrap A aceptadas.
-    """
-
-    if (
-        pd.isna(aceptadas)
-        or solicitadas <= 0
-    ):
-        return (
-            "No disponible",
-            None,
-        )
-
-    proporcion = (
-        float(aceptadas)
-        / float(solicitadas)
-    )
-
-    if proporcion >= 0.80:
-
-        return (
-            "Alta",
-            proporcion,
-        )
-
-    if proporcion >= 0.50:
-
-        return (
-            "Moderada",
-            proporcion,
-        )
-
-    return (
-        "Limitada",
-        proporcion,
-    )
-
-
 def construir_etiqueta_estacion(
     station,
     nombre,
 ):
     """
-    Construye etiqueta legible para selectores.
+    Construye una etiqueta legible para los selectores.
     """
-
     if pd.notna(nombre):
+        return f"{station} — {nombre}"
 
-        return (
-            f"{station} — {nombre}"
-        )
-
-    return str(
-        station
-    )
+    return str(station)
 
 
 # ============================================================
@@ -117,7 +81,7 @@ st.title(
 st.write(
     """
     Este módulo estima niveles de precipitación extrema mediante
-    la distribución Generalizada de Valores Extremos (GEV).
+    la Distribución Generalizada de Valores Extremos (GEV).
 
     La plataforma trabaja directamente con los archivos Excel
     originales de estaciones CONAGUA. Para cada estación se
@@ -132,7 +96,7 @@ st.info(
     **Flujo del análisis:** archivos originales CONAGUA →
     limpieza de datos → máximos anuales → ajuste GEV →
     niveles de retorno → intervalo de confianza mediante
-    Bootstrap A robusto.
+    Bootstrap robusto.
     """
 )
 
@@ -140,6 +104,187 @@ st.caption(
     "El Bootstrap robusto se utiliza como método principal "
     "para representar la incertidumbre de los niveles de retorno."
 )
+
+
+# ============================================================
+# ANÁLISIS GUARDADOS
+# ============================================================
+
+ejecuciones_guardadas = listar_ejecuciones_gev(
+    CARPETA_SALIDA
+)
+
+if ejecuciones_guardadas:
+
+    ultima = ejecuciones_guardadas[0]
+
+    with st.container(
+        border=True
+    ):
+
+        st.markdown(
+            "### Análisis GEV guardado"
+        )
+
+        col_g1, col_g2, col_g3 = st.columns(
+            3
+        )
+
+        col_g1.metric(
+            "Última ejecución",
+            formato_fecha_ejecucion(
+                ultima.get(
+                    "fecha_ejecucion"
+                )
+            ),
+        )
+
+        col_g2.metric(
+            "Estaciones",
+            ultima.get(
+                "estaciones_procesadas",
+                "N/D",
+            ),
+        )
+
+        col_g3.metric(
+            "Réplicas Bootstrap",
+            ultima.get(
+                "n_boot",
+                "N/D",
+            ),
+        )
+
+        confianza_guardada = (
+            float(
+                ultima.get(
+                    "confianza",
+                    0.95,
+                )
+            )
+            * 100
+        )
+
+        periodos_guardados = ", ".join(
+            f"{float(valor):g}"
+            for valor
+            in ultima.get(
+                "niveles_retorno",
+                []
+            )
+        )
+
+        st.caption(
+            f"IC {confianza_guardada:.0f}% · "
+            f"Periodos de retorno: "
+            f"{periodos_guardados} años."
+        )
+
+        col_load, col_history = st.columns(
+            2
+        )
+
+        with col_load:
+
+            if st.button(
+                "📂 Cargar último análisis",
+                use_container_width=True,
+                key="gev_load_latest",
+            ):
+
+                try:
+
+                    st.session_state[
+                        "gev_batch_result"
+                    ] = cargar_ejecucion_gev(
+                        ultima
+                    )
+
+                    st.success(
+                        "El último análisis GEV se cargó "
+                        "correctamente."
+                    )
+
+                    st.rerun()
+
+                except Exception as error:
+
+                    st.error(
+                        "No fue posible cargar el análisis."
+                    )
+
+                    st.exception(
+                        error
+                    )
+
+        with col_history:
+
+            mostrar_historial = st.checkbox(
+                "Ver análisis anteriores",
+                value=False,
+                key="gev_show_history",
+            )
+
+    if mostrar_historial:
+
+        opciones_historial = {}
+
+        for config in ejecuciones_guardadas:
+
+            etiqueta = (
+                f"{formato_fecha_ejecucion(config.get('fecha_ejecucion'))}"
+                f" · {config.get('estaciones_procesadas', 'N/D')} estaciones"
+                f" · {config.get('n_boot', 'N/D')} réplicas"
+            )
+
+            opciones_historial[
+                etiqueta
+            ] = config
+
+        seleccion_historial = st.selectbox(
+            "Seleccionar ejecución guardada",
+            options=list(
+                opciones_historial.keys()
+            ),
+            key="gev_history_select",
+        )
+
+        config_seleccionada = (
+            opciones_historial[
+                seleccion_historial
+            ]
+        )
+
+        if st.button(
+            "Cargar ejecución seleccionada",
+            use_container_width=True,
+            key="gev_load_history",
+        ):
+
+            try:
+
+                st.session_state[
+                    "gev_batch_result"
+                ] = cargar_ejecucion_gev(
+                    config_seleccionada
+                )
+
+                st.success(
+                    "La ejecución seleccionada se cargó "
+                    "correctamente."
+                )
+
+                st.rerun()
+
+            except Exception as error:
+
+                st.error(
+                    "No fue posible cargar la ejecución."
+                )
+
+                st.exception(
+                    error
+                )
 
 
 # ============================================================
@@ -156,8 +301,10 @@ dir_in = st.text_input(
         r"G:\...\estaciones_conagua_excel\Colima"
     ),
     help=(
-        "La carpeta debe contener los archivos Excel originales "
-        "descargados de CONAGUA."
+        "Indique la carpeta donde se encuentran los archivos "
+        "Excel originales descargados de CONAGUA. La plataforma "
+        "identifica automáticamente la hoja de información, "
+        "las coordenadas y la serie climática de cada estación."
     ),
     key="gev_source_folder",
 )
@@ -166,7 +313,9 @@ patron = st.text_input(
     "Patrón de archivos",
     value="*.xlsx",
     help=(
-        "Normalmente no es necesario modificar este valor."
+        "Define qué archivos se buscarán dentro de la carpeta. "
+        "Para los archivos originales CONAGUA normalmente debe "
+        "mantenerse como *.xlsx."
     ),
     key="gev_excel_pattern",
 )
@@ -178,11 +327,9 @@ patron = st.text_input(
 
 carpeta = None
 carpeta_valida = False
-
 estaciones_lectura = []
 metadata_df = pd.DataFrame()
 log_lectura = pd.DataFrame()
-
 
 if dir_in.strip():
 
@@ -226,17 +373,15 @@ if dir_in.strip():
 
             total_ok = int(
                 (
-                    log_lectura[
-                        "status"
-                    ] == "ok"
+                    log_lectura["status"]
+                    == "ok"
                 ).sum()
             )
 
             total_no_ok = int(
                 (
-                    log_lectura[
-                        "status"
-                    ] != "ok"
+                    log_lectura["status"]
+                    != "ok"
                 ).sum()
             )
 
@@ -250,9 +395,10 @@ if dir_in.strip():
             if total_no_ok > 0:
 
                 st.warning(
-                    f"{total_no_ok} archivo(s) no corresponden "
-                    "al formato esperado de una estación CONAGUA "
-                    "y serán ignorados."
+                    f"Se omitieron {total_no_ok} archivo(s) "
+                    "porque no corresponden al formato esperado "
+                    "de una estación CONAGUA. Esto no afecta el "
+                    "procesamiento de las estaciones válidas."
                 )
 
         except Exception as error:
@@ -273,7 +419,6 @@ if dir_in.strip():
 st.subheader(
     "2. Estaciones detectadas"
 )
-
 
 if (
     carpeta_valida
@@ -361,7 +506,8 @@ if (
             "longitud",
             "altitud_msnm",
         ]
-        if columna in metadata_df.columns
+        if columna
+        in metadata_df.columns
     ]
 
     with st.expander(
@@ -376,7 +522,7 @@ if (
             hide_index=True,
         )
 
-    archivos_no_compatibles = (
+    archivos_omitidos = (
         log_lectura[
             log_lectura[
                 "status"
@@ -389,14 +535,20 @@ if (
         else pd.DataFrame()
     )
 
-    if not archivos_no_compatibles.empty:
+    if not archivos_omitidos.empty:
 
         with st.expander(
-            "Archivos no compatibles"
+            "Archivos omitidos durante la lectura"
         ):
 
+            st.caption(
+                "Estos archivos no presentan la estructura "
+                "esperada de una estación CONAGUA y no se "
+                "incluyen en el análisis."
+            )
+
             st.dataframe(
-                archivos_no_compatibles,
+                archivos_omitidos,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -421,85 +573,127 @@ col_a, col_b = st.columns(
     2
 )
 
-
-# ------------------------------------------------------------
-# COLUMNA IZQUIERDA
-# ------------------------------------------------------------
-
 with col_a:
 
     n_min_anios = st.number_input(
-        "Mínimo recomendado de máximos anuales",
+        "Mínimo de años para el ajuste GEV",
         min_value=2,
         max_value=100,
         value=10,
         step=1,
         help=(
-            "Las estaciones con menos años no serán excluidas, "
-            "pero se marcarán con una advertencia de alta "
-            "incertidumbre."
+            "Número mínimo recomendado de máximos anuales. "
+            "Las estaciones con menos años no se eliminan, "
+            "pero sus resultados se marcan con una advertencia "
+            "por mayor incertidumbre."
         ),
         key="gev_min_years",
     )
 
     n_boot = st.number_input(
-        "Réplicas Bootstrap A",
+        "Réplicas Bootstrap robusto",
         min_value=50,
         max_value=5000,
         value=500,
         step=50,
         help=(
-            "Número de remuestreos utilizados para construir "
-            "el intervalo de confianza robusto."
+            "Número de remuestreos utilizados para estimar "
+            "la incertidumbre de los niveles de retorno. "
+            "Más réplicas suelen proporcionar intervalos más "
+            "estables, pero incrementan el tiempo de cálculo."
         ),
         key="gev_n_boot",
     )
 
     alpha = st.number_input(
-        "Nivel de significancia",
+        "Nivel de significancia (α)",
         min_value=0.001,
         max_value=0.20,
         value=0.05,
         step=0.01,
         format="%.3f",
         help=(
-            "0.05 corresponde a un intervalo de confianza "
-            "del 95%."
+            "Determina el nivel de confianza del intervalo. "
+            "Por ejemplo, α = 0.05 corresponde a un "
+            "intervalo de confianza del 95%."
         ),
         key="gev_alpha",
     )
 
 
-# ------------------------------------------------------------
-# COLUMNA DERECHA
-# ------------------------------------------------------------
-
 with col_b:
 
     periodos_texto = st.text_input(
-        "Periodos de retorno, separados por comas",
+        "Periodos de retorno (años)",
         value="2, 5, 10, 25, 50, 100",
         help=(
-            "Los valores deben ser mayores que 1."
+            "Horizontes temporales para los cuales se estima "
+            "la precipitación extrema. Un periodo de retorno "
+            "de 100 años no significa que el evento ocurra "
+            "exactamente una vez cada 100 años; representa una "
+            "probabilidad anual aproximada de excedencia de 1/100."
         ),
         key="gev_return_periods",
     )
 
     seed = st.number_input(
-        "Semilla reproducible",
+        "Semilla para reproducibilidad",
         min_value=0,
         value=42,
         step=1,
         help=(
-            "Permite reproducir el proceso bootstrap."
+            "Fija el estado inicial del generador aleatorio "
+            "del bootstrap. Usar la misma semilla permite "
+            "reproducir el análisis bajo la misma configuración."
         ),
         key="gev_seed",
     )
 
     st.text_input(
         "Método de incertidumbre",
-        value="Bootstrap A robusto",
+        value="Bootstrap robusto",
         disabled=True,
+        help=(
+            "El Bootstrap robusto remuestrea la serie de máximos "
+            "anuales y descarta ajustes GEV inestables mediante "
+            "criterios de control de calidad antes de construir "
+            "el intervalo de confianza."
+        ),
+    )
+
+
+with st.expander(
+    "¿Qué significa cada parámetro?"
+):
+
+    st.markdown(
+        """
+        **Máximos anuales.** Para cada año disponible se conserva
+        el mayor valor diario de precipitación. Esta serie constituye
+        la base del ajuste GEV.
+
+        **Distribución GEV.** La Distribución Generalizada de Valores
+        Extremos modela estadísticamente los máximos observados y permite
+        estimar precipitaciones asociadas a eventos poco frecuentes.
+
+        **Periodo de retorno.** Expresa la frecuencia probabilística de
+        un determinado nivel extremo. Por ejemplo, un periodo de retorno
+        de 50 años corresponde a una probabilidad anual aproximada de
+        excedencia de 1/50.
+
+        **Bootstrap robusto.** Se generan múltiples remuestras de los
+        máximos anuales, se reajusta la GEV y se conservan únicamente
+        las réplicas que cumplen los criterios de estabilidad definidos
+        por el modelo.
+
+        **Nivel de significancia (α).** Define la amplitud del intervalo
+        de confianza. Con α = 0.05 se obtiene un intervalo de confianza
+        del 95%.
+
+        **Semilla reproducible.** Permite repetir el procedimiento
+        aleatorio y obtener resultados comparables cuando se mantienen
+        los mismos datos y parámetros.
+        """
     )
 
 
@@ -509,7 +703,6 @@ with col_b:
 
 niveles_retorno = None
 error_periodos = None
-
 
 try:
 
@@ -555,7 +748,6 @@ try:
         niveles_retorno
     )
 
-
 except ValueError as error:
 
     error_periodos = str(
@@ -568,19 +760,27 @@ except ValueError as error:
     )
 
 
-# ============================================================
-# RESUMEN DE CONFIGURACIÓN
-# ============================================================
-
 if niveles_retorno is not None:
 
-    st.caption(
-        "Periodos que serán analizados: "
+    confianza_actual = (
+        1.0
+        - float(
+            alpha
+        )
+    )
+
+    st.info(
+        "Se estimarán niveles de retorno para "
         + ", ".join(
             f"{valor:g}"
-            for valor in niveles_retorno
+            for valor
+            in niveles_retorno
         )
-        + " años."
+        + " años mediante distribución GEV. "
+        f"La incertidumbre será estimada con "
+        f"{int(n_boot)} réplicas Bootstrap robusto "
+        f"y un intervalo de confianza del "
+        f"{confianza_actual * 100:.0f}%."
     )
 
 
@@ -592,7 +792,6 @@ st.subheader(
     "4. Ejecutar análisis"
 )
 
-
 puede_ejecutar = (
     carpeta_valida
     and len(
@@ -602,9 +801,8 @@ puede_ejecutar = (
     and error_periodos is None
 )
 
-
 if st.button(
-    "🚀 Procesar estaciones GEV",
+    "🚀 Ejecutar análisis GEV",
     type="primary",
     use_container_width=True,
     disabled=not puede_ejecutar,
@@ -621,8 +819,8 @@ if st.button(
             (
                 maestro,
                 log_df,
-                out_master,
-                out_log,
+                out_master_motor,
+                out_log_motor,
                 metadata_resultado,
             ) = ejecutar_proceso_batch_conagua(
                 dir_in=str(
@@ -644,58 +842,71 @@ if st.button(
                 seed=int(
                     seed
                 ),
-
-                # Bootstrap B se desactiva deliberadamente.
                 usar_boot_parametrico=False,
-
                 plot_max_t=float(
                     niveles_retorno.max()
                 ),
             )
 
-        st.session_state[
-            "gev_batch_result"
-        ] = {
-            "maestro": maestro,
-            "log_df": log_df,
-            "out_master": out_master,
-            "out_log": out_log,
-            "metadata_df": metadata_resultado,
-            "dir_in": str(
-                carpeta
-            ),
-            "n_archivos": len(
-                estaciones_lectura
-            ),
-            "n_boot": int(
-                n_boot
-            ),
-            "alpha": float(
-                alpha
-            ),
-            "niveles_retorno": (
-                niveles_retorno.tolist()
-            ),
-            "n_min_anios": int(
-                n_min_anios
-            ),
-        }
-
         if (
-            maestro is not None
-            and not maestro.empty
+            maestro is None
+            or maestro.empty
         ):
-
-            st.success(
-                "El procesamiento GEV terminó correctamente."
-            )
-
-        else:
 
             st.warning(
                 "El proceso terminó, pero no se generó "
                 "una tabla maestra. Revise el log."
             )
+
+        else:
+
+            config_guardada = guardar_ejecucion_gev(
+                maestro=maestro,
+                log_df=log_df,
+                metadata_df=metadata_resultado,
+                carpeta_salida=CARPETA_SALIDA,
+                carpeta_fuente=carpeta,
+                patron=patron,
+                n_boot=int(
+                    n_boot
+                ),
+                alpha=float(
+                    alpha
+                ),
+                seed=int(
+                    seed
+                ),
+                n_min_anios=int(
+                    n_min_anios
+                ),
+                niveles_retorno=(
+                    niveles_retorno
+                ),
+            )
+
+            resultado_guardado = cargar_ejecucion_gev(
+                config_guardada
+            )
+
+            resultado_guardado[
+                "out_master_motor"
+            ] = out_master_motor
+
+            resultado_guardado[
+                "out_log_motor"
+            ] = out_log_motor
+
+            st.session_state[
+                "gev_batch_result"
+            ] = resultado_guardado
+
+            st.success(
+                "El procesamiento GEV terminó correctamente "
+                "y la ejecución quedó guardada para consultas "
+                "posteriores."
+            )
+
+            st.rerun()
 
     except Exception as error:
 
@@ -716,7 +927,6 @@ resultado = st.session_state.get(
     "gev_batch_result"
 )
 
-
 if resultado is not None:
 
     maestro = resultado[
@@ -735,24 +945,40 @@ if resultado is not None:
         "out_log"
     ]
 
-    n_boot_resultado = resultado[
-        "n_boot"
-    ]
+    n_boot_resultado = int(
+        resultado[
+            "n_boot"
+        ]
+    )
 
-    alpha_resultado = resultado[
-        "alpha"
-    ]
+    alpha_resultado = float(
+        resultado[
+            "alpha"
+        ]
+    )
 
-    n_min_resultado = resultado[
-        "n_min_anios"
-    ]
-
+    n_min_resultado = int(
+        resultado[
+            "n_min_anios"
+        ]
+    )
 
     st.divider()
 
     st.subheader(
         "5. Resultados"
     )
+
+    if resultado.get(
+        "persistent",
+        False,
+    ):
+
+        st.success(
+            "Análisis guardado cargado · "
+            f"Ejecución: "
+            f"{formato_fecha_ejecucion(resultado.get('fecha_ejecucion'))}"
+        )
 
 
     # ========================================================
@@ -779,14 +1005,16 @@ if resultado is not None:
     if (
         log_df is not None
         and not log_df.empty
-        and "status" in log_df.columns
+        and "status"
+        in log_df.columns
     ):
 
         total_errores = int(
             (
                 log_df[
                     "status"
-                ] == "error"
+                ]
+                == "error"
             ).sum()
         )
 
@@ -794,7 +1022,8 @@ if resultado is not None:
             (
                 log_df[
                     "status"
-                ] == "incompatible"
+                ]
+                == "incompatible"
             ).sum()
         )
 
@@ -824,13 +1053,12 @@ if resultado is not None:
     )
 
     col_m4.metric(
-        "Archivos incompatibles",
+        "Archivos omitidos",
         total_incompatibles,
     )
 
-
     st.caption(
-        f"Bootstrap A robusto: "
+        f"Bootstrap robusto: "
         f"{n_boot_resultado} réplicas · "
         f"IC {(1 - alpha_resultado) * 100:.0f}%."
     )
@@ -863,8 +1091,21 @@ if resultado is not None:
             and not maestro.empty
         ):
 
+            tabla_maestra_visual = (
+                preparar_maestro_visual(
+                    maestro=maestro,
+                    n_boot=n_boot_resultado,
+                )
+            )
+
+            st.caption(
+                "La tabla se presenta con nombres descriptivos "
+                "para facilitar su interpretación. Los datos "
+                "estadísticos originales no son modificados."
+            )
+
             st.dataframe(
-                maestro,
+                tabla_maestra_visual,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -927,7 +1168,8 @@ if resultado is not None:
                 maestro[
                     maestro[
                         "station"
-                    ].astype(str)
+                    ]
+                    .astype(str)
                     == str(
                         estacion
                     )
@@ -941,11 +1183,6 @@ if resultado is not None:
             primera_fila = (
                 datos_estacion.iloc[0]
             )
-
-
-            # =================================================
-            # IDENTIFICACIÓN
-            # =================================================
 
             nombre = primera_fila.get(
                 "nombre",
@@ -1004,11 +1241,6 @@ if resultado is not None:
                 descripcion
             )
 
-
-            # =================================================
-            # PARÁMETROS GEV
-            # =================================================
-
             shape = pd.to_numeric(
                 primera_fila.get(
                     "gev_shape",
@@ -1057,6 +1289,12 @@ if resultado is not None:
                 errors="coerce",
             )
 
+            politica_bootstrap = (
+                clasificar_calidad_bootstrap(
+                    aceptadas=boot_a,
+                    solicitadas=n_boot_resultado,
+                )
+            )
 
             fila_metricas_1 = st.columns(
                 4
@@ -1106,13 +1344,12 @@ if resultado is not None:
                 ),
             )
 
-
             fila_metricas_2 = st.columns(
                 3
             )
 
             fila_metricas_2[0].metric(
-                "Pendiente lineal",
+                "Pendiente de máximos anuales",
                 (
                     f"{slope:.3f} mm/año"
                     if np.isfinite(
@@ -1120,36 +1357,39 @@ if resultado is not None:
                     )
                     else "N/D"
                 ),
+                help=(
+                    "Pendiente lineal calculada sobre la serie "
+                    "de máximos anuales observados. No representa "
+                    "un parámetro GEV ni significa que el nivel "
+                    "de retorno aumente esa cantidad cada año."
+                ),
+            )
+
+            porcentaje_boot = (
+                politica_bootstrap[
+                    "porcentaje"
+                ]
             )
 
             fila_metricas_2[1].metric(
-                "Bootstrap aceptado",
+                "Réplicas válidas",
                 (
-                    f"{int(boot_a)} / "
-                    f"{n_boot_resultado}"
+                    f"{politica_bootstrap['aceptadas']} de "
+                    f"{politica_bootstrap['solicitadas']} "
+                    f"({porcentaje_boot:.1f}%)"
                     if np.isfinite(
-                        boot_a
+                        porcentaje_boot
                     )
                     else "N/D"
                 ),
             )
 
-            calidad_bootstrap, proporcion_boot = (
-                interpretar_calidad_bootstrap(
-                    aceptadas=boot_a,
-                    solicitadas=n_boot_resultado,
-                )
-            )
-
             fila_metricas_2[2].metric(
                 "Calidad Bootstrap",
-                calidad_bootstrap,
+                politica_bootstrap[
+                    "clasificacion"
+                ],
             )
-
-
-            # =================================================
-            # ADVERTENCIAS
-            # =================================================
 
             note = str(
                 primera_fila.get(
@@ -1168,35 +1408,50 @@ if resultado is not None:
                     note
                 )
 
+            proporcion_boot = (
+                politica_bootstrap[
+                    "proporcion"
+                ]
+            )
 
             if (
-                proporcion_boot is not None
+                np.isfinite(
+                    proporcion_boot
+                )
+                and proporcion_boot < 0.25
+            ):
+
+                st.error(
+                    politica_bootstrap[
+                        "mensaje"
+                    ]
+                )
+
+            elif (
+                np.isfinite(
+                    proporcion_boot
+                )
                 and proporcion_boot < 0.50
             ):
 
                 st.warning(
-                    "El intervalo de confianza de esta estación "
-                    "se obtuvo con menos del 50% de las réplicas "
-                    "bootstrap solicitadas. Los límites deben "
-                    "interpretarse con especial cautela."
+                    politica_bootstrap[
+                        "mensaje"
+                    ]
                 )
 
             elif (
-                proporcion_boot is not None
-                and proporcion_boot < 0.80
+                np.isfinite(
+                    proporcion_boot
+                )
+                and proporcion_boot < 0.75
             ):
 
                 st.info(
-                    "El Bootstrap A descartó una proporción "
-                    "relevante de réplicas inestables. "
-                    "El intervalo mostrado corresponde únicamente "
-                    "a los ajustes aceptados por los filtros robustos."
+                    politica_bootstrap[
+                        "mensaje"
+                    ]
                 )
-
-
-            # =================================================
-            # CURVA GEV
-            # =================================================
 
             columnas_grafica = {
                 "T_years",
@@ -1262,18 +1517,12 @@ if resultado is not None:
                         dtype=float
                     )
 
-
                     fig, ax = plt.subplots(
                         figsize=(
                             10,
                             5.5,
                         )
                     )
-
-
-                    # -----------------------------------------
-                    # BANDA DE CONFIANZA
-                    # -----------------------------------------
 
                     mascara_ic = (
                         np.isfinite(
@@ -1284,7 +1533,28 @@ if resultado is not None:
                         )
                     )
 
-                    if mascara_ic.any():
+                    if (
+                        politica_bootstrap[
+                            "mostrar_ic"
+                        ]
+                        and mascara_ic.any()
+                    ):
+
+                        etiqueta_ic = (
+                            "IC 95% Bootstrap robusto"
+                        )
+
+                        if (
+                            np.isfinite(
+                                proporcion_boot
+                            )
+                            and proporcion_boot
+                            < 0.50
+                        ):
+
+                            etiqueta_ic += (
+                                " — interpretar con cautela"
+                            )
 
                         ax.fill_between(
                             t[
@@ -1297,15 +1567,8 @@ if resultado is not None:
                                 mascara_ic
                             ],
                             alpha=0.25,
-                            label=(
-                                "IC 95% Bootstrap A robusto"
-                            ),
+                            label=etiqueta_ic,
                         )
-
-
-                    # -----------------------------------------
-                    # NIVEL PUNTUAL
-                    # -----------------------------------------
 
                     ax.plot(
                         t,
@@ -1365,10 +1628,18 @@ if resultado is not None:
                         fig
                     )
 
+                    if not politica_bootstrap[
+                        "mostrar_ic"
+                    ]:
 
-            # =================================================
-            # TABLA DE NIVELES
-            # =================================================
+                        st.caption(
+                            "Intervalo de confianza no representado "
+                            "en la gráfica: "
+                            f"{politica_bootstrap['aceptadas']} de "
+                            f"{politica_bootstrap['solicitadas']} "
+                            "réplicas Bootstrap fueron válidas "
+                            f"({politica_bootstrap['porcentaje']:.1f}%)."
+                        )
 
             st.subheader(
                 "Niveles de retorno e intervalo robusto"
@@ -1393,23 +1664,21 @@ if resultado is not None:
                 .copy()
             )
 
-            tabla_visual = (
-                tabla_visual.rename(
-                    columns={
-                        "T_years": (
-                            "Periodo de retorno (años)"
-                        ),
-                        "level_mm": (
-                            "Nivel estimado (mm)"
-                        ),
-                        "CI_low95_bootA": (
-                            "IC 95% inferior (mm)"
-                        ),
-                        "CI_high95_bootA": (
-                            "IC 95% superior (mm)"
-                        ),
-                    }
-                )
+            tabla_visual = tabla_visual.rename(
+                columns={
+                    "T_years": (
+                        "Periodo de retorno (años)"
+                    ),
+                    "level_mm": (
+                        "Nivel estimado (mm)"
+                    ),
+                    "CI_low95_bootA": (
+                        "IC 95% inferior (mm)"
+                    ),
+                    "CI_high95_bootA": (
+                        "IC 95% superior (mm)"
+                    ),
+                }
             )
 
             for columna in tabla_visual.columns:
@@ -1438,13 +1707,25 @@ if resultado is not None:
                 hide_index=True,
             )
 
+            if not politica_bootstrap[
+                "mostrar_ic"
+            ]:
 
-            # =================================================
-            # DESCARGA INDIVIDUAL
-            # =================================================
+                st.caption(
+                    "Los límites del intervalo se conservan en la "
+                    "tabla para trazabilidad del cálculo, pero no "
+                    "deben interpretarse como un intervalo robusto "
+                    "para inferencia en esta estación."
+                )
+
+            datos_estacion_descarga = (
+                preparar_maestro_exportacion(
+                    datos_estacion
+                )
+            )
 
             csv_estacion = (
-                datos_estacion
+                datos_estacion_descarga
                 .to_csv(
                     index=False
                 )
@@ -1565,7 +1846,6 @@ if resultado is not None:
                 ].astype(str)
             )
 
-
             max_estaciones = len(
                 comparacion
             )
@@ -1591,11 +1871,9 @@ if resultado is not None:
 
                 numero_estaciones = 1
 
-
             top_estaciones = comparacion.head(
                 numero_estaciones
             )
-
 
             fig, ax = plt.subplots(
                 figsize=(
@@ -1645,7 +1923,6 @@ if resultado is not None:
                 fig
             )
 
-
             columnas_comparacion = [
                 columna
                 for columna in [
@@ -1663,10 +1940,40 @@ if resultado is not None:
                 in comparacion.columns
             ]
 
-            st.dataframe(
+            tabla_comparacion = (
                 comparacion[
                     columnas_comparacion
-                ],
+                ]
+                .copy()
+                .rename(
+                    columns={
+                        "station": "Estación",
+                        "nombre": "Nombre",
+                        "municipio": "Municipio",
+                        "T_years": (
+                            "Periodo de retorno (años)"
+                        ),
+                        "level_mm": (
+                            "Nivel estimado (mm)"
+                        ),
+                        "CI_low95_bootA": (
+                            "IC 95% inferior (mm)"
+                        ),
+                        "CI_high95_bootA": (
+                            "IC 95% superior (mm)"
+                        ),
+                        "n_years": (
+                            "Máximos anuales"
+                        ),
+                        "bootA_naccepted": (
+                            "Réplicas válidas"
+                        ),
+                    }
+                )
+            )
+
+            st.dataframe(
+                tabla_comparacion,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1710,7 +2017,7 @@ if resultado is not None:
             )
 
             resumen_calidad[
-                "bootA_porcentaje_aceptado"
+                "bootstrap_aceptado_pct"
             ] = (
                 pd.to_numeric(
                     resumen_calidad[
@@ -1726,12 +2033,59 @@ if resultado is not None:
                 1
             )
 
+            resumen_calidad[
+                "calidad_bootstrap"
+            ] = resumen_calidad[
+                "bootA_naccepted"
+            ].apply(
+                lambda valor: (
+                    clasificar_calidad_bootstrap(
+                        aceptadas=valor,
+                        solicitadas=n_boot_resultado,
+                    )[
+                        "clasificacion"
+                    ]
+                )
+            )
+
+            resumen_calidad_visual = (
+                resumen_calidad.rename(
+                    columns={
+                        "station": "Estación",
+                        "nombre": "Nombre",
+                        "municipio": "Municipio",
+                        "n_years": "Máximos anuales",
+                        "gev_shape": (
+                            "Parámetro de forma"
+                        ),
+                        "gev_loc": (
+                            "Localización (mm)"
+                        ),
+                        "gev_scale": (
+                            "Escala (mm)"
+                        ),
+                        "trend_slope_mm_per_year": (
+                            "Pendiente máximos anuales (mm/año)"
+                        ),
+                        "bootA_naccepted": (
+                            "Réplicas válidas"
+                        ),
+                        "bootstrap_aceptado_pct": (
+                            "Bootstrap aceptado (%)"
+                        ),
+                        "calidad_bootstrap": (
+                            "Calidad Bootstrap"
+                        ),
+                        "note": "Observación",
+                    }
+                )
+            )
+
             st.dataframe(
-                resumen_calidad,
+                resumen_calidad_visual,
                 use_container_width=True,
                 hide_index=True,
             )
-
 
             estaciones_pocos_anios = (
                 resumen_calidad[
@@ -1745,24 +2099,28 @@ if resultado is not None:
                 ]
             )
 
-            boot_limitado = (
+            boot_no_confiable = (
                 resumen_calidad[
-                    pd.to_numeric(
-                        resumen_calidad[
-                            "bootA_naccepted"
-                        ],
-                        errors="coerce",
-                    )
-                    < (
-                        n_boot_resultado
-                        * 0.50
-                    )
+                    resumen_calidad[
+                        "calidad_bootstrap"
+                    ]
+                    == "No confiable para inferencia"
                 ]
             )
 
+            boot_limitado = (
+                resumen_calidad[
+                    resumen_calidad[
+                        "calidad_bootstrap"
+                    ]
+                    == "Limitada"
+                ]
+            )
 
-            col_q1, col_q2 = st.columns(
-                2
+            col_q1, col_q2, col_q3 = (
+                st.columns(
+                    3
+                )
             )
 
             col_q1.metric(
@@ -1773,12 +2131,18 @@ if resultado is not None:
             )
 
             col_q2.metric(
-                "Bootstrap < 50% aceptado",
+                "Bootstrap no confiable (<25%)",
+                len(
+                    boot_no_confiable
+                ),
+            )
+
+            col_q3.metric(
+                "Bootstrap limitado (25–50%)",
                 len(
                     boot_limitado
                 ),
             )
-
 
             if not estaciones_pocos_anios.empty:
 
@@ -1795,19 +2159,58 @@ if resultado is not None:
                             "n_years",
                             "note",
                         ]
-                    ],
+                    ].rename(
+                        columns={
+                            "station": "Estación",
+                            "nombre": "Nombre",
+                            "n_years": "Máximos anuales",
+                            "note": "Observación",
+                        }
+                    ),
                     use_container_width=True,
                     hide_index=True,
                 )
 
+            if not boot_no_confiable.empty:
+
+                st.error(
+                    "Las siguientes estaciones presentan menos "
+                    "del 25% de réplicas Bootstrap válidas. "
+                    "Sus intervalos de confianza no se representan "
+                    "como bandas de incertidumbre en las gráficas."
+                )
+
+                st.dataframe(
+                    boot_no_confiable[
+                        [
+                            "station",
+                            "nombre",
+                            "bootA_naccepted",
+                            "bootstrap_aceptado_pct",
+                        ]
+                    ].rename(
+                        columns={
+                            "station": "Estación",
+                            "nombre": "Nombre",
+                            "bootA_naccepted": (
+                                "Réplicas válidas"
+                            ),
+                            "bootstrap_aceptado_pct": (
+                                "Bootstrap aceptado (%)"
+                            ),
+                        }
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
             if not boot_limitado.empty:
 
                 st.warning(
-                    "Las siguientes estaciones tienen menos "
-                    "del 50% de réplicas Bootstrap A aceptadas. "
-                    "Sus intervalos de confianza deben "
-                    "interpretarse con especial cautela."
+                    "Las siguientes estaciones presentan entre "
+                    "25% y 50% de réplicas Bootstrap válidas. "
+                    "Sus intervalos se muestran, pero deben "
+                    "interpretarse con cautela."
                 )
 
                 st.dataframe(
@@ -1816,9 +2219,20 @@ if resultado is not None:
                             "station",
                             "nombre",
                             "bootA_naccepted",
-                            "bootA_porcentaje_aceptado",
+                            "bootstrap_aceptado_pct",
                         ]
-                    ],
+                    ].rename(
+                        columns={
+                            "station": "Estación",
+                            "nombre": "Nombre",
+                            "bootA_naccepted": (
+                                "Réplicas válidas"
+                            ),
+                            "bootstrap_aceptado_pct": (
+                                "Bootstrap aceptado (%)"
+                            ),
+                        }
+                    ),
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1859,25 +2273,10 @@ if resultado is not None:
             and not maestro.empty
         ):
 
-            # Eliminamos las columnas Bootstrap B
-            # del producto descargable principal.
-            columnas_excluir = [
-                "CI_low95_bootB",
-                "CI_high95_bootB",
-                "bootB_naccepted",
-            ]
-
             maestro_descarga = (
-                maestro.drop(
-                    columns=[
-                        columna
-                        for columna
-                        in columnas_excluir
-                        if columna
-                        in maestro.columns
-                    ]
+                preparar_maestro_exportacion(
+                    maestro
                 )
-                .copy()
             )
 
             csv_master = (
@@ -1895,12 +2294,11 @@ if resultado is not None:
                 data=csv_master,
                 file_name=(
                     "MASTER_GEV_CONAGUA_"
-                    "BootstrapA_robusto.csv"
+                    "Bootstrap_robusto.csv"
                 ),
                 mime="text/csv",
                 use_container_width=True,
             )
-
 
         if (
             log_df is not None
@@ -1927,24 +2325,18 @@ if resultado is not None:
                 use_container_width=True,
             )
 
+        st.caption(
+            "Archivos persistentes de esta ejecución:"
+        )
 
         if out_master:
-
-            st.caption(
-                "Tabla maestra generada por el motor:"
-            )
 
             st.code(
                 out_master,
                 language=None,
             )
 
-
         if out_log:
-
-            st.caption(
-                "Log generado por el motor:"
-            )
 
             st.code(
                 out_log,
