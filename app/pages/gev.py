@@ -118,6 +118,38 @@ if ejecuciones_guardadas:
 
     ultima = ejecuciones_guardadas[0]
 
+    # --------------------------------------------------------
+    # IDENTIFICAR ESTADO DEL ÚLTIMO ANÁLISIS
+    # --------------------------------------------------------
+
+    estado_ultima = ultima.get(
+        "estado",
+        None,
+    )
+
+    if not estado_ultima:
+
+        carpeta_fuente_ultima = str(
+            ultima.get(
+                "carpeta_fuente",
+                ""
+            )
+        ).strip()
+
+        if carpeta_fuente_ultima:
+
+            estado_ultima = Path(
+                carpeta_fuente_ultima
+            ).name
+
+    if not estado_ultima:
+
+        estado_ultima = "N/D"
+
+    # --------------------------------------------------------
+    # TARJETA DEL ÚLTIMO ANÁLISIS
+    # --------------------------------------------------------
+
     with st.container(
         border=True
     ):
@@ -126,8 +158,8 @@ if ejecuciones_guardadas:
             "### Análisis GEV guardado"
         )
 
-        col_g1, col_g2, col_g3 = st.columns(
-            3
+        col_g1, col_g2, col_g3, col_g4 = st.columns(
+            4
         )
 
         col_g1.metric(
@@ -140,6 +172,11 @@ if ejecuciones_guardadas:
         )
 
         col_g2.metric(
+            "Estado",
+            estado_ultima,
+        )
+
+        col_g3.metric(
             "Estaciones",
             ultima.get(
                 "estaciones_procesadas",
@@ -147,7 +184,7 @@ if ejecuciones_guardadas:
             ),
         )
 
-        col_g3.metric(
+        col_g4.metric(
             "Réplicas Bootstrap",
             ultima.get(
                 "n_boot",
@@ -225,14 +262,43 @@ if ejecuciones_guardadas:
                 key="gev_show_history",
             )
 
+    # --------------------------------------------------------
+    # HISTORIAL DE EJECUCIONES
+    # --------------------------------------------------------
+
     if mostrar_historial:
 
         opciones_historial = {}
 
         for config in ejecuciones_guardadas:
 
+            estado_ejecucion = config.get(
+                "estado",
+                None,
+            )
+
+            if not estado_ejecucion:
+
+                carpeta_fuente = str(
+                    config.get(
+                        "carpeta_fuente",
+                        ""
+                    )
+                ).strip()
+
+                if carpeta_fuente:
+
+                    estado_ejecucion = Path(
+                        carpeta_fuente
+                    ).name
+
+            if not estado_ejecucion:
+
+                estado_ejecucion = "Estado N/D"
+
             etiqueta = (
                 f"{formato_fecha_ejecucion(config.get('fecha_ejecucion'))}"
+                f" · {estado_ejecucion}"
                 f" · {config.get('estaciones_procesadas', 'N/D')} estaciones"
                 f" · {config.get('n_boot', 'N/D')} réplicas"
             )
@@ -295,30 +361,202 @@ st.subheader(
     "1. Fuente de datos CONAGUA"
 )
 
-dir_in = st.text_input(
-    "Carpeta con archivos originales de estaciones CONAGUA",
-    placeholder=(
-        r"G:\...\estaciones_conagua_excel\Colima"
-    ),
-    help=(
-        "Indique la carpeta donde se encuentran los archivos "
-        "Excel originales descargados de CONAGUA. La plataforma "
-        "identifica automáticamente la hoja de información, "
-        "las coordenadas y la serie climática de cada estación."
-    ),
-    key="gev_source_folder",
+CARPETA_CONAGUA_DESCARGAS = (
+    PROJECT_ROOT
+    / "CONAGUA"
+    / "estaciones_descargadas"
 )
 
-patron = st.text_input(
-    "Patrón de archivos",
-    value="*.xlsx",
+
+# ------------------------------------------------------------
+# DETECTAR ESTADOS DESCARGADOS
+# ------------------------------------------------------------
+
+def detectar_estados_conagua(
+    carpeta_base,
+):
+    """
+    Detecta estados que contienen al menos un archivo XLSX
+    descargado desde el módulo CONAGUA de la plataforma.
+    """
+    if not carpeta_base.exists():
+        return []
+
+    estados = []
+
+    for carpeta_estado in sorted(
+        carpeta_base.iterdir()
+    ):
+
+        if not carpeta_estado.is_dir():
+            continue
+
+        archivos = [
+            archivo
+            for archivo
+            in carpeta_estado.glob(
+                "*.xlsx"
+            )
+            if not archivo.name.startswith(
+                "~$"
+            )
+        ]
+
+        if archivos:
+            estados.append(
+                carpeta_estado.name
+            )
+
+    return estados
+
+
+# ------------------------------------------------------------
+# SELECCIÓN DE FUENTE
+# ------------------------------------------------------------
+
+fuente_datos = st.radio(
+    "Fuente de las estaciones",
+    options=[
+        "Estaciones descargadas desde la plataforma",
+        "Carpeta externa",
+    ],
+    horizontal=True,
+    key="gev_data_source",
     help=(
-        "Define qué archivos se buscarán dentro de la carpeta. "
-        "Para los archivos originales CONAGUA normalmente debe "
-        "mantenerse como *.xlsx."
+        "Puede utilizar directamente las estaciones descargadas "
+        "desde el módulo CONAGUA de la plataforma o indicar "
+        "manualmente otra carpeta con archivos originales "
+        "compatibles."
     ),
-    key="gev_excel_pattern",
 )
+
+
+# Valores que utilizará posteriormente el módulo
+dir_in = ""
+patron = "*.xlsx"
+
+
+# ------------------------------------------------------------
+# OPCIÓN A — DESCARGAS DE LA PLATAFORMA
+# ------------------------------------------------------------
+
+if fuente_datos == (
+    "Estaciones descargadas desde la plataforma"
+):
+
+    estados_disponibles = (
+        detectar_estados_conagua(
+            CARPETA_CONAGUA_DESCARGAS
+        )
+    )
+
+    if not estados_disponibles:
+
+        st.warning(
+            "No se encontraron estaciones descargadas desde "
+            "el módulo CONAGUA."
+        )
+
+        st.caption(
+            "Primero descargue las estaciones desde la sección "
+            "CONAGUA de la plataforma o utilice la opción "
+            "'Carpeta externa'."
+        )
+
+    else:
+
+        estado_seleccionado = st.selectbox(
+            "Estado disponible",
+            options=estados_disponibles,
+            key="gev_downloaded_state",
+            help=(
+                "Se muestran automáticamente los estados que "
+                "contienen estaciones descargadas desde el "
+                "módulo CONAGUA."
+            ),
+        )
+
+        carpeta_estado = (
+            CARPETA_CONAGUA_DESCARGAS
+            / estado_seleccionado
+        )
+
+        archivos_estado = [
+            archivo
+            for archivo
+            in carpeta_estado.glob(
+                "*.xlsx"
+            )
+            if not archivo.name.startswith(
+                "~$"
+            )
+        ]
+
+        dir_in = str(
+            carpeta_estado
+        )
+
+        col_fuente_1, col_fuente_2 = (
+            st.columns(2)
+        )
+
+        col_fuente_1.metric(
+            "Estado seleccionado",
+            estado_seleccionado,
+        )
+
+        col_fuente_2.metric(
+            "Archivos Excel encontrados",
+            len(
+                archivos_estado
+            ),
+        )
+
+        st.success(
+            f"Se utilizarán las estaciones descargadas de "
+            f"{estado_seleccionado}."
+        )
+
+        with st.expander(
+            "Ver ubicación de los archivos"
+        ):
+
+            st.code(
+                str(
+                    carpeta_estado
+                ),
+                language=None,
+            )
+
+
+# ------------------------------------------------------------
+# OPCIÓN B — CARPETA EXTERNA
+# ------------------------------------------------------------
+
+else:
+
+    dir_in = st.text_input(
+        "Carpeta con archivos originales de estaciones CONAGUA",
+        placeholder=(
+            r"G:\...\estaciones_conagua_excel\Colima"
+        ),
+        help=(
+            "Indique la carpeta donde se encuentran los archivos "
+            "Excel originales de estaciones CONAGUA."
+        ),
+        key="gev_source_folder",
+    )
+
+    patron = st.text_input(
+        "Patrón de archivos",
+        value="*.xlsx",
+        help=(
+            "Define qué archivos se buscarán dentro de la carpeta. "
+            "Para los archivos originales CONAGUA normalmente debe "
+            "mantenerse como *.xlsx."
+        ),
+        key="gev_excel_pattern",
+    )
 
 
 # ============================================================
@@ -331,7 +569,8 @@ estaciones_lectura = []
 metadata_df = pd.DataFrame()
 log_lectura = pd.DataFrame()
 
-if dir_in.strip():
+
+if dir_in and dir_in.strip():
 
     carpeta = Path(
         dir_in.strip()
@@ -354,7 +593,7 @@ if dir_in.strip():
         try:
 
             with st.spinner(
-                "Leyendo archivos CONAGUA..."
+                "Leyendo estaciones CONAGUA..."
             ):
 
                 (
@@ -367,23 +606,44 @@ if dir_in.strip():
                 )
 
             carpeta_valida = (
-                len(estaciones_lectura)
+                len(
+                    estaciones_lectura
+                )
                 > 0
             )
 
-            total_ok = int(
-                (
-                    log_lectura["status"]
-                    == "ok"
-                ).sum()
-            )
+            if (
+                log_lectura is not None
+                and not log_lectura.empty
+                and "status"
+                in log_lectura.columns
+            ):
 
-            total_no_ok = int(
-                (
-                    log_lectura["status"]
-                    != "ok"
-                ).sum()
-            )
+                total_ok = int(
+                    (
+                        log_lectura[
+                            "status"
+                        ]
+                        == "ok"
+                    ).sum()
+                )
+
+                total_no_ok = int(
+                    (
+                        log_lectura[
+                            "status"
+                        ]
+                        != "ok"
+                    ).sum()
+                )
+
+            else:
+
+                total_ok = len(
+                    estaciones_lectura
+                )
+
+                total_no_ok = 0
 
             if total_ok > 0:
 
@@ -404,7 +664,8 @@ if dir_in.strip():
         except Exception as error:
 
             st.error(
-                "No fue posible leer la carpeta."
+                "No fue posible leer la fuente de datos "
+                "seleccionada."
             )
 
             st.exception(

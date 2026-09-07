@@ -142,30 +142,102 @@ st.info(
 # 1. FUENTE DE DATOS
 # ============================================================
 
-st.subheader(
-    "1. Fuente de datos CONAGUA"
+st.subheader("1. Fuente de datos CONAGUA")
+
+CARPETA_CONAGUA_DESCARGAS = PROJECT_ROOT / "CONAGUA" / "estaciones_descargadas"
+
+
+def detectar_estados_conagua(carpeta_base):
+    """Detecta estados con al menos un XLSX descargado desde el módulo CONAGUA."""
+    if not carpeta_base.exists():
+        return []
+
+    estados = []
+    for carpeta_estado in sorted(carpeta_base.iterdir()):
+        if not carpeta_estado.is_dir():
+            continue
+        archivos = [
+            archivo for archivo in carpeta_estado.glob("*.xlsx")
+            if not archivo.name.startswith("~$")
+        ]
+        if archivos:
+            estados.append(carpeta_estado.name)
+    return estados
+
+
+fuente_datos = st.radio(
+    "Fuente de las estaciones",
+    options=[
+        "Estaciones descargadas desde la plataforma",
+        "Carpeta externa",
+    ],
+    horizontal=True,
+    key="exceedance_data_source",
+    help=(
+        "Puede utilizar directamente las estaciones descargadas desde el módulo "
+        "CONAGUA o indicar manualmente otra carpeta con archivos compatibles."
+    ),
 )
 
-dir_in = st.text_input(
-    "Carpeta con archivos originales de estaciones CONAGUA",
-    placeholder=(
-        r"G:\...\estaciones_conagua_excel\Colima"
-    ),
-    help=(
-        "La carpeta debe contener los archivos Excel originales "
-        "descargados de CONAGUA."
-    ),
-    key="conagua_source_folder",
-)
+dir_in = ""
+patron = "*.xlsx"
 
-patron = st.text_input(
-    "Patrón de archivos",
-    value="*.xlsx",
-    help=(
-        "Normalmente no es necesario modificar este valor."
-    ),
-    key="conagua_excel_pattern",
-)
+if fuente_datos == "Estaciones descargadas desde la plataforma":
+    estados_disponibles = detectar_estados_conagua(CARPETA_CONAGUA_DESCARGAS)
+
+    if not estados_disponibles:
+        st.warning("No se encontraron estaciones descargadas desde el módulo CONAGUA.")
+        st.caption(
+            "Primero descargue estaciones desde la sección CONAGUA o utilice "
+            "la opción 'Carpeta externa'."
+        )
+    else:
+        estado_seleccionado = st.selectbox(
+            "Estado disponible",
+            options=estados_disponibles,
+            key="exceedance_downloaded_state",
+            help=(
+                "Se muestran automáticamente los estados que contienen estaciones "
+                "descargadas desde el módulo CONAGUA."
+            ),
+        )
+
+        carpeta_estado = CARPETA_CONAGUA_DESCARGAS / estado_seleccionado
+        archivos_estado = [
+            archivo for archivo in carpeta_estado.glob("*.xlsx")
+            if not archivo.name.startswith("~$")
+        ]
+        dir_in = str(carpeta_estado)
+
+        col_fuente_1, col_fuente_2 = st.columns(2)
+        col_fuente_1.metric("Estado seleccionado", estado_seleccionado)
+        col_fuente_2.metric("Archivos Excel encontrados", len(archivos_estado))
+
+        st.success(f"Se utilizarán las estaciones descargadas de {estado_seleccionado}.")
+
+        with st.expander("Ver ubicación de los archivos"):
+            st.code(str(carpeta_estado), language=None)
+
+else:
+    dir_in = st.text_input(
+        "Carpeta con archivos originales de estaciones CONAGUA",
+        placeholder=r"G:\...\estaciones_conagua_excel\Colima",
+        help=(
+            "Indique la carpeta donde se encuentran los archivos Excel originales "
+            "de estaciones CONAGUA."
+        ),
+        key="exceedance_source_folder",
+    )
+
+    patron = st.text_input(
+        "Patrón de archivos",
+        value="*.xlsx",
+        help=(
+            "Define qué archivos se buscarán dentro de la carpeta. Para archivos "
+            "CONAGUA normalmente debe mantenerse como *.xlsx."
+        ),
+        key="exceedance_excel_pattern",
+    )
 
 
 # ============================================================
@@ -178,82 +250,48 @@ estaciones_lectura = []
 metadata_df = pd.DataFrame()
 log_lectura = pd.DataFrame()
 
-if dir_in.strip():
-
-    carpeta = Path(
-        dir_in.strip()
-    ).expanduser()
+if dir_in and dir_in.strip():
+    carpeta = Path(dir_in.strip()).expanduser()
 
     if not carpeta.exists():
-
-        st.error(
-            "La carpeta indicada no existe."
-        )
-
+        st.error("La carpeta indicada no existe.")
     elif not carpeta.is_dir():
-
-        st.error(
-            "La ruta indicada no corresponde a una carpeta."
-        )
-
+        st.error("La ruta indicada no corresponde a una carpeta.")
     else:
-
-        carpeta_valida = True
-
         try:
-
-            with st.spinner(
-                "Leyendo archivos CONAGUA..."
-            ):
-
-                (
-                    estaciones_lectura,
-                    metadata_df,
-                    log_lectura,
-                ) = leer_lote_conagua(
+            with st.spinner("Leyendo estaciones CONAGUA..."):
+                estaciones_lectura, metadata_df, log_lectura = leer_lote_conagua(
                     carpeta=carpeta,
                     patron=patron,
                 )
 
-            total_ok = int(
-                (
-                    log_lectura[
-                        "status"
-                    ] == "ok"
-                ).sum()
-            )
+            carpeta_valida = len(estaciones_lectura) > 0
 
-            total_no_ok = int(
-                (
-                    log_lectura[
-                        "status"
-                    ] != "ok"
-                ).sum()
-            )
+            if (
+                log_lectura is not None
+                and not log_lectura.empty
+                and "status" in log_lectura.columns
+            ):
+                total_ok = int((log_lectura["status"] == "ok").sum())
+                total_no_ok = int((log_lectura["status"] != "ok").sum())
+            else:
+                total_ok = len(estaciones_lectura)
+                total_no_ok = 0
 
-            st.success(
-                f"Se detectaron {total_ok} estaciones CONAGUA "
-                "compatibles."
-            )
+            if total_ok > 0:
+                st.success(f"Se detectaron {total_ok} estaciones CONAGUA compatibles.")
+            else:
+                st.warning("No se detectaron estaciones CONAGUA compatibles.")
 
             if total_no_ok > 0:
-
                 st.warning(
-                    f"{total_no_ok} archivo(s) de la carpeta no "
-                    "corresponden al formato esperado de una estación "
-                    "CONAGUA y serán ignorados en el análisis."
+                    f"Se omitieron {total_no_ok} archivo(s) porque no corresponden "
+                    "al formato esperado de una estación CONAGUA."
                 )
 
         except Exception as error:
-
-            st.error(
-                "No fue posible leer la carpeta de estaciones."
-            )
-
-            st.exception(
-                error
-            )
-
+            st.error("No fue posible leer la fuente de datos seleccionada.")
+            st.exception(error)
             carpeta_valida = False
 
 
