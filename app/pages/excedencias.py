@@ -14,6 +14,12 @@ from scripts.exceedance import (
 from scripts.raster_export import (
     exportar_desde_puntos_a_geotiff,
 )
+from scripts.exceedance_persistence import (
+    guardar_ejecucion_excedencia,
+    listar_ejecuciones_excedencia,
+    cargar_ejecucion_excedencia,
+    formato_fecha_ejecucion,
+)
 
 
 # ============================================================
@@ -699,6 +705,86 @@ if st.button(
                 ),
             }
 
+            # =================================================
+            # PERSISTENCIA DE LA EJECUCIÓN
+            # =================================================
+
+            if estados_detectados:
+                estado_persistencia = ", ".join(
+                    estados_detectados
+                )
+            else:
+                estado_persistencia = (
+                    carpeta.name
+                    if carpeta is not None
+                    else None
+                )
+
+            config_persistente = (
+                guardar_ejecucion_excedencia(
+                    resultados=resultados,
+                    log_df=log_df,
+                    metadata_df=metadata_df,
+                    carpeta_salida=CARPETA_SALIDA,
+                    carpeta_fuente=carpeta,
+                    patron=patron,
+                    threshold=float(
+                        threshold
+                    ),
+                    consolidar_duplicados=(
+                        consolidar_duplicados
+                    ),
+                    raster_path=resultado_tif[
+                        "out_tif"
+                    ],
+                    estado=estado_persistencia,
+                    metodo_interpolacion="linear",
+                    nx=RESOLUCION,
+                    ny=RESOLUCION,
+                    margin=0.0,
+                    fill_nearest=False,
+                    crs=CRS,
+                )
+            )
+
+            ejecucion_cargada = (
+                cargar_ejecucion_excedencia(
+                    config_persistente
+                )
+            )
+
+            st.session_state[
+                "exceedance_batch_result"
+            ] = ejecucion_cargada
+
+            st.session_state[
+                "exceedance_raster_path"
+            ] = ejecucion_cargada[
+                "raster_path"
+            ]
+
+            st.session_state[
+                "exceedance_raster_metadata"
+            ] = ejecucion_cargada[
+                "raster_metadata"
+            ]
+
+            st.session_state[
+                "exceedance_spatial_data"
+            ] = (
+                ejecucion_cargada[
+                    "resultados"
+                ]
+                .dropna(
+                    subset=[
+                        "longitud",
+                        "latitud",
+                        "prob_excedencia",
+                    ]
+                )
+                .copy()
+            )
+
         st.success(
             "El análisis de excedencias y la superficie espacial "
             "se generaron correctamente."
@@ -713,6 +799,210 @@ if st.button(
         st.exception(
             error
         )
+
+
+# ============================================================
+# ANÁLISIS GUARDADOS
+# ============================================================
+
+st.divider()
+
+st.subheader(
+    "Análisis guardados"
+)
+
+ejecuciones_guardadas = (
+    listar_ejecuciones_excedencia(
+        CARPETA_SALIDA
+    )
+)
+
+if ejecuciones_guardadas:
+
+    ultima = ejecuciones_guardadas[0]
+
+    estado_ultima = (
+        ultima.get("estado")
+        or "N/D"
+    )
+
+    col_h1, col_h2, col_h3, col_h4 = (
+        st.columns(4)
+    )
+
+    col_h1.metric(
+        "Última ejecución",
+        formato_fecha_ejecucion(
+            ultima.get(
+                "fecha_ejecucion"
+            )
+        ),
+    )
+
+    col_h2.metric(
+        "Estado",
+        estado_ultima,
+    )
+
+    col_h3.metric(
+        "Estaciones",
+        ultima.get(
+            "estaciones_procesadas",
+            "N/D",
+        ),
+    )
+
+    col_h4.metric(
+        "Umbral",
+        (
+            f"≥ {float(ultima.get('threshold_mm', 0)):g} mm"
+        ),
+    )
+
+    opciones_ejecuciones = {}
+
+    for ejecucion in ejecuciones_guardadas:
+
+        fecha_visible = (
+            formato_fecha_ejecucion(
+                ejecucion.get(
+                    "fecha_ejecucion"
+                )
+            )
+        )
+
+        estado_visible = (
+            ejecucion.get(
+                "estado"
+            )
+            or "N/D"
+        )
+
+        estaciones_visible = (
+            ejecucion.get(
+                "estaciones_procesadas",
+                "N/D",
+            )
+        )
+
+        umbral_visible = float(
+            ejecucion.get(
+                "threshold_mm",
+                0.0,
+            )
+        )
+
+        etiqueta = (
+            f"{fecha_visible} · "
+            f"{estado_visible} · "
+            f"≥ {umbral_visible:g} mm · "
+            f"{estaciones_visible} estaciones"
+        )
+
+        opciones_ejecuciones[
+            etiqueta
+        ] = ejecucion
+
+    ejecucion_visible = st.selectbox(
+        "Seleccionar análisis guardado",
+        options=list(
+            opciones_ejecuciones.keys()
+        ),
+        key="exceedance_saved_run",
+    )
+
+    if st.button(
+        "📂 Cargar análisis seleccionado",
+        use_container_width=True,
+        key="exceedance_load_saved_run",
+    ):
+
+        try:
+
+            ejecucion_seleccionada = (
+                opciones_ejecuciones[
+                    ejecucion_visible
+                ]
+            )
+
+            ejecucion_cargada = (
+                cargar_ejecucion_excedencia(
+                    ejecucion_seleccionada
+                )
+            )
+
+            st.session_state[
+                "exceedance_batch_result"
+            ] = ejecucion_cargada
+
+            st.session_state[
+                "exceedance_raster_path"
+            ] = ejecucion_cargada[
+                "raster_path"
+            ]
+
+            st.session_state[
+                "exceedance_raster_metadata"
+            ] = ejecucion_cargada[
+                "raster_metadata"
+            ]
+
+            resultados_guardados = (
+                ejecucion_cargada[
+                    "resultados"
+                ]
+            )
+
+            columnas_espaciales = [
+                "longitud",
+                "latitud",
+                "prob_excedencia",
+            ]
+
+            if all(
+                columna
+                in resultados_guardados.columns
+                for columna
+                in columnas_espaciales
+            ):
+                st.session_state[
+                    "exceedance_spatial_data"
+                ] = (
+                    resultados_guardados
+                    .dropna(
+                        subset=columnas_espaciales
+                    )
+                    .copy()
+                )
+            else:
+                st.session_state[
+                    "exceedance_spatial_data"
+                ] = None
+
+            st.success(
+                "El análisis guardado se cargó "
+                "correctamente."
+            )
+
+            st.rerun()
+
+        except Exception as error:
+
+            st.error(
+                "No fue posible cargar el análisis "
+                "guardado."
+            )
+
+            st.exception(
+                error
+            )
+
+else:
+
+    st.info(
+        "Todavía no existen análisis de excedencias "
+        "guardados."
+    )
 
 
 # ============================================================
