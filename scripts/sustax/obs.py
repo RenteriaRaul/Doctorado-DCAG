@@ -186,6 +186,101 @@ def read_conagua_station_daily(path: str) -> pd.DataFrame:
 
     return out
 
+# ==========================================
+# ADAPTADOR CONAGUA_READER → OBS
+# ==========================================
+
+def build_conagua_series_lookup(
+    estaciones_conagua: list,
+) -> dict[str, pd.DataFrame]:
+    """
+    Convierte la salida de conagua_reader.leer_lote_conagua()
+    en un diccionario de series diarias compatible con el
+    módulo OBS Sustax.
+
+    Retorna
+    -------
+    dict
+        {
+            "6001": DataFrame(date, pp_mm),
+            "6002": DataFrame(date, pp_mm),
+            ...
+        }
+    """
+
+    lookup = {}
+
+    for estacion in estaciones_conagua:
+
+        metadata = estacion.get("metadata", {})
+        data = estacion.get("data")
+
+        station_id = (
+            metadata.get("station")
+            or metadata.get("clave")
+            or metadata.get("station_id")
+        )
+
+        if station_id is None:
+            continue
+
+        if data is None or data.empty:
+            continue
+
+        station_id = str(station_id).strip()
+
+        df = data.copy()
+
+        if "date" not in df.columns:
+            continue
+
+        # conagua_reader normaliza precipitación como "pp"
+        if "pp" in df.columns:
+            pp_col = "pp"
+        elif "pp_mm" in df.columns:
+            pp_col = "pp_mm"
+        else:
+            continue
+
+        out = df[
+            ["date", pp_col]
+        ].copy()
+
+        out = out.rename(
+            columns={
+                pp_col: "pp_mm"
+            }
+        )
+
+        out["date"] = pd.to_datetime(
+            out["date"],
+            errors="coerce",
+        ).dt.normalize()
+
+        out["pp_mm"] = pd.to_numeric(
+            out["pp_mm"],
+            errors="coerce",
+        )
+
+        out.loc[
+            out["pp_mm"] < 0,
+            "pp_mm",
+        ] = np.nan
+
+        out = (
+            out
+            .dropna(subset=["date"])
+            .groupby(
+                "date",
+                as_index=False,
+            )["pp_mm"]
+            .mean()
+            .sort_values("date")
+        )
+
+        lookup[station_id] = out
+
+    return lookup
 
 # ==========================================
 # CONSTRUCCIÓN OBS SIMPLE / IDW

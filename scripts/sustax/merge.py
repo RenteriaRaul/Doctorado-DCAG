@@ -21,6 +21,23 @@ def split_var_scenario(colname: str) -> tuple[Optional[str], Optional[str]]:
         return None, None
     return m.group(1).strip(), m.group(2).strip()
 
+def build_spatial_id(
+    base_name: str,
+    lat: float,
+    lon: float,
+) -> str:
+    """
+    Construye un identificador único para cada punto Sustax
+    utilizando el identificador original y sus coordenadas.
+
+    Ejemplo:
+    ID-1803_18.4075_-104.6250
+    """
+    return (
+        f"{str(base_name).strip()}_"
+        f"{float(lat):.4f}_"
+        f"{float(lon):.4f}"
+    )
 
 def build_long_total_from_inventory(
     inventory_df: pd.DataFrame,
@@ -123,12 +140,19 @@ def build_long_total_from_inventory(
             .reset_index(drop=True)
         )
 
-        sustax_total = f"{base_name}Total"
+        
+        spatial_id = build_spatial_id(
+            base_name=base_name,
+            lat=lat,
+            lon=lon,
+        )
+        
+        sustax_total = f"{spatial_id}Total"
         merged.insert(0, "sustax_total", sustax_total)
         merged.insert(1, "lat", lat)
         merged.insert(2, "lon", lon)
 
-        out_name = f"{base_name}Total_LONG_mm.csv"
+        out_name = f"{spatial_id}Total_LONG_mm.csv"
         out_fp = os.path.join(out_dir, out_name)
         merged.to_csv(out_fp, index=False)
 
