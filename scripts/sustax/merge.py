@@ -1,6 +1,10 @@
-import glob
+
 import os
 import re
+import shutil
+import tempfile
+import uuid
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -8,261 +12,236 @@ import pandas as pd
 
 from scripts.sustax.loader import load_sustax_file_safe
 
+DECIMALES_COORDENADAS = 4
+TOLERANCIA_MM = 1e-6
+
 
 def split_var_scenario(colname: str) -> tuple[Optional[str], Optional[str]]:
-    """
-    Separa una columna tipo:
-    'Total Precipitation [SSP245]'
-    en:
-    ('Total Precipitation', 'SSP245')
-    """
     m = re.match(r"^(.*)\s+\[(.*)\]\s*$", str(colname).strip())
-    if not m:
-        return None, None
-    return m.group(1).strip(), m.group(2).strip()
+    return (m.group(1).strip(), m.group(2).strip()) if m else (None, None)
 
-def build_spatial_id(
-    base_name: str,
-    lat: float,
-    lon: float,
-) -> str:
-    """
-    Construye un identificador único para cada punto Sustax
-    utilizando el identificador original y sus coordenadas.
 
-    Ejemplo:
-    ID-1803_18.4075_-104.6250
-    """
-    return (
-        f"{str(base_name).strip()}_"
-        f"{float(lat):.4f}_"
-        f"{float(lon):.4f}"
+def build_spatial_id(base_name: str, lat: float, lon: float) -> str:
+    return f"{float(lat):.4f}_{float(lon):.4f}"
+
+
+def _publicar(temporal: Path, destino: Path, patron: str, resumen: str):
+    destino.mkdir(parents=True, exist_ok=True)
+    nuevos = list(temporal.glob("*.csv"))
+    if not (temporal / resumen).exists():
+        raise RuntimeError(f"Falta el resumen: {resumen}")
+    anteriores = list(destino.glob(patron))
+    if (destino / resumen).exists() and destino / resumen not in anteriores:
+        anteriores.append(destino / resumen)
+    respaldo = destino.parent / f".backup_{destino.name}_{uuid.uuid4().hex}"
+    respaldo.mkdir()
+    copiados = []
+    try:
+        for archivo in anteriores:
+            archivo.replace(respaldo / archivo.name)
+        for archivo in nuevos:
+            archivo.replace(destino / archivo.name)
+            copiados.append(destino / archivo.name)
+    except Exception:
+        for archivo in copiados:
+            if archivo.exists():
+                archivo.unlink()
+        for archivo in respaldo.iterdir():
+            archivo.replace(destino / archivo.name)
+        raise
+    finally:
+        shutil.rmtree(respaldo, ignore_errors=True)
+
+
+def _depurar(datos: pd.DataFrame, diagnostico_dir: Path) -> pd.DataFrame:
+    claves = ["date", "variable", "scenario"]
+    datos = datos.dropna(subset=["date", "value_mm"]).copy()
+    if datos.empty:
+        return datos
+    agrupado = datos.groupby(claves, as_index=False).agg(
+        n_registros=("value_mm", "size"),
+        minimo_mm=("value_mm", "min"),
+        maximo_mm=("value_mm", "max"),
+        archivos=("source_file", lambda x: " | ".join(sorted(set(x.astype(str)))))
     )
+    agrupado["diferencia_mm"] = agrupado["maximo_mm"] - agrupado["minimo_mm"]
+    conflictos = agrupado.loc[agrupado["diferencia_mm"] > TOLERANCIA_MM]
+    if not conflictos.empty:
+        diagnostico_dir.mkdir(parents=True, exist_ok=True)
+        conflictos.to_csv(
+            diagnostico_dir / "SUSTAX_conflictos.csv", index=False
+        )
+        raise ValueError(
+            f"Se detectaron {len(conflictos)} conflictos de valores. "
+            f"Consulta {diagnostico_dir / 'SUSTAX_conflictos.csv'}"
+        )
+    return (
+        datos.sort_values(["date", "scenario", "variable", "source_file"])
+        .drop_duplicates(subset=claves, keep="first")
+        .reset_index(drop=True)
+    )
+
 
 def build_long_total_from_inventory(
     inventory_df: pd.DataFrame,
-    out_dir: str,
+    out_dir: str
 ) -> tuple[pd.DataFrame, str]:
-    """
-    Genera archivos LONG_TOTAL a partir del inventario agrupado
-    por (base_name, lat, lon).
-
-    Parámetros
-    ----------
-    inventory_df : pd.DataFrame
-        Inventario Sustax.
-    out_dir : str
-        Carpeta de salida para LONG_TOTAL.
-
-    Retorna
-    -------
-    merged_summary_df : pd.DataFrame
-        Resumen de archivos LONG generados.
-    merged_summary_path : str
-        Ruta del CSV resumen.
-    """
-    os.makedirs(out_dir, exist_ok=True)
-
-    merged_rows = []
-
-    if inventory_df.empty:
-        merged_summary_df = pd.DataFrame(
-            columns=[
-                "sustax_total",
-                "lat",
-                "lon",
-                "n_original_files",
-                "original_files",
-                "n_rows_merged",
-                "scenarios_merged",
-                "out_file",
-            ]
-        )
-        merged_summary_path = os.path.join(out_dir, "SUSTAX_TOTAL_LONG_summary.csv")
-        merged_summary_df.to_csv(merged_summary_path, index=False)
-        return merged_summary_df, merged_summary_path
-
-    for (base_name, lat, lon), grp in inventory_df.groupby(["base_name", "lat", "lon"]):
-        long_parts = []
-
-        for _, row in grp.iterrows():
-            fp = row["path"]
-            fn = row["sustax_file"]
-
-            try:
-                df_vals, _, _ = load_sustax_file_safe(
-                    fp,
-                    return_pandas_df=True,
-                    return_metadata=True,
-                )
-
-                df_vals = df_vals.copy()
-                df_vals.index = pd.to_datetime(df_vals.index, errors="coerce")
-                df_vals = df_vals[~df_vals.index.isna()].sort_index()
-                df_vals.index = df_vals.index.normalize()
-
-                iso_dates = df_vals.index.strftime("%Y-%m-%d")
-
-                rows_long = []
-                for c in df_vals.columns:
-                    var, sc = split_var_scenario(c)
-                    if var is None:
-                        continue
-
-                    values_mm = pd.to_numeric(df_vals[c], errors="coerce") * 1000.0
-
-                    tmp = pd.DataFrame(
-                        {
-                            "source_file": fn,
-                            "date": iso_dates,
-                            "variable": var,
-                            "scenario": sc,
-                            "value_mm": values_mm.values,
-                        }
+    destino = Path(out_dir)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    columnas = [
+        "sustax_total", "lat", "lon", "n_original_files",
+        "original_files", "n_rows_merged", "scenarios_merged", "out_file"
+    ]
+    resumen_nombre = "SUSTAX_TOTAL_LONG_summary.csv"
+    resumen_filas = []
+    with tempfile.TemporaryDirectory(
+        prefix="sustax_long_", dir=str(destino.parent.resolve())
+    ) as tmp:
+        temporal = Path(tmp)
+        if not inventory_df.empty:
+            inventario = inventory_df.copy()
+            inventario["lat"] = pd.to_numeric(
+                inventario["lat"], errors="raise"
+            ).round(DECIMALES_COORDENADAS)
+            inventario["lon"] = pd.to_numeric(
+                inventario["lon"], errors="raise"
+            ).round(DECIMALES_COORDENADAS)
+            if not (
+                np.isfinite(inventario["lat"]).all()
+                and np.isfinite(inventario["lon"]).all()
+            ):
+                raise ValueError("Inventario con coordenadas inválidas")
+            for (lat, lon), grupo in inventario.groupby(["lat", "lon"], sort=True):
+                partes = []
+                for _, registro in grupo.iterrows():
+                    archivo = registro["path"]
+                    nombre = registro["sustax_file"]
+                    try:
+                        valores, _, _ = load_sustax_file_safe(
+                            archivo,
+                            return_pandas_df=True,
+                            return_metadata=True
+                        )
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"No fue posible leer {nombre}: {exc}"
+                        ) from exc
+                    valores = valores.copy()
+                    valores.index = pd.to_datetime(
+                        valores.index, errors="coerce"
                     )
-                    rows_long.append(tmp)
-
-                if rows_long:
-                    part = pd.concat(rows_long, ignore_index=True)
-                    long_parts.append(part)
-
-            except Exception as e:
-                print(f"⚠️ Error procesando {fn}: {e}")
-
-        if not long_parts:
-            continue
-
-        merged = pd.concat(long_parts, ignore_index=True)
-
-        merged = (
-            merged.drop_duplicates(subset=["date", "variable", "scenario"], keep="first")
-            .sort_values(["date", "scenario", "variable"])
-            .reset_index(drop=True)
-        )
-
-        
-        spatial_id = build_spatial_id(
-            base_name=base_name,
-            lat=lat,
-            lon=lon,
-        )
-        
-        sustax_total = f"{spatial_id}Total"
-        merged.insert(0, "sustax_total", sustax_total)
-        merged.insert(1, "lat", lat)
-        merged.insert(2, "lon", lon)
-
-        out_name = f"{spatial_id}Total_LONG_mm.csv"
-        out_fp = os.path.join(out_dir, out_name)
-        merged.to_csv(out_fp, index=False)
-
-        merged_rows.append(
-            {
-                "sustax_total": sustax_total,
-                "lat": lat,
-                "lon": lon,
-                "n_original_files": len(grp),
-                "original_files": " | ".join(grp["sustax_file"].tolist()),
-                "n_rows_merged": len(merged),
-                "scenarios_merged": ", ".join(sorted(merged["scenario"].dropna().unique())),
-                "out_file": out_fp,
-            }
-        )
-
-    merged_summary_df = pd.DataFrame(merged_rows)
-    if not merged_summary_df.empty:
-        merged_summary_df = merged_summary_df.sort_values("sustax_total").reset_index(drop=True)
-
-    merged_summary_path = os.path.join(out_dir, "SUSTAX_TOTAL_LONG_summary.csv")
-    merged_summary_df.to_csv(merged_summary_path, index=False)
-
-    return merged_summary_df, merged_summary_path
+                    valores = valores.loc[~valores.index.isna()]
+                    valores.index = valores.index.normalize()
+                    fechas = valores.index.strftime("%Y-%m-%d")
+                    for columna in valores.columns:
+                        variable, escenario = split_var_scenario(columna)
+                        if not variable or not escenario:
+                            continue
+                        precipitacion = pd.to_numeric(
+                            valores[columna], errors="coerce"
+                        ) * 1000.0
+                        partes.append(pd.DataFrame({
+                            "source_file": nombre,
+                            "date": fechas,
+                            "variable": variable,
+                            "scenario": escenario.upper(),
+                            "value_mm": precipitacion.to_numpy()
+                        }))
+                if not partes:
+                    continue
+                conjunto = pd.concat(partes, ignore_index=True)
+                conjunto = _depurar(
+                    conjunto, destino.parent / "SUSTAX_DIAGNOSTICOS"
+                )
+                if conjunto.empty:
+                    continue
+                identificador = build_spatial_id("", lat, lon)
+                sustax_total = f"{identificador}Total"
+                conjunto.insert(0, "sustax_total", sustax_total)
+                conjunto.insert(1, "lat", lat)
+                conjunto.insert(2, "lon", lon)
+                nombre_salida = f"{sustax_total}_LONG_mm.csv"
+                conjunto.to_csv(temporal / nombre_salida, index=False)
+                resumen_filas.append({
+                    "sustax_total": sustax_total,
+                    "lat": lat,
+                    "lon": lon,
+                    "n_original_files": len(grupo),
+                    "original_files": " | ".join(
+                        sorted(grupo["sustax_file"].astype(str))
+                    ),
+                    "n_rows_merged": len(conjunto),
+                    "scenarios_merged": ", ".join(
+                        sorted(conjunto["scenario"].dropna().unique())
+                    ),
+                    "out_file": str(destino / nombre_salida)
+                })
+        resumen = pd.DataFrame(resumen_filas, columns=columnas)
+        resumen.to_csv(temporal / resumen_nombre, index=False)
+        _publicar(temporal, destino, "*Total_LONG_mm.csv", resumen_nombre)
+    return resumen, str(destino / resumen_nombre)
 
 
 def build_by_scenario_total(
     long_total_dir: str,
-    out_dir: str,
+    out_dir: str
 ) -> tuple[pd.DataFrame, str]:
-    """
-    Genera archivos BY_SCENARIO_TOTAL a partir de LONG_TOTAL.
-
-    Parámetros
-    ----------
-    long_total_dir : str
-        Carpeta con archivos *Total_LONG_mm.csv
-    out_dir : str
-        Carpeta de salida BY_SCENARIO_TOTAL
-
-    Retorna
-    -------
-    byscen_summary_df : pd.DataFrame
-        Resumen de escenarios generados por punto.
-    byscen_summary_path : str
-        Ruta del CSV resumen.
-    """
-    os.makedirs(out_dir, exist_ok=True)
-
-    summary_rows = []
-
-    long_files = sorted(glob.glob(os.path.join(long_total_dir, "*Total_LONG_mm.csv")))
-
-    for fp in long_files:
-        df = pd.read_csv(fp)
-
-        if df.empty:
-            continue
-
-        if "scenario" not in df.columns:
-            print(f"⚠️ El archivo no tiene columna 'scenario': {os.path.basename(fp)}")
-            continue
-
-        sustax_total = df["sustax_total"].iloc[0]
-        lat = df["lat"].iloc[0]
-        lon = df["lon"].iloc[0]
-
-        generated = []
-
-        for sc in sorted(df["scenario"].dropna().unique()):
-            sub = df[df["scenario"] == sc].copy()
-
-            if sub.empty:
-                continue
-
-            piv = (
-                sub.pivot_table(
-                    index="date",
-                    columns="variable",
-                    values="value_mm",
-                    aggfunc="mean",
+    origen = Path(long_total_dir)
+    destino = Path(out_dir)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    resumen_nombre = "SUSTAX_TOTAL_BYSCEN_summary.csv"
+    columnas = [
+        "sustax_total", "lat", "lon",
+        "n_scenarios_generated", "scenarios_generated"
+    ]
+    resumen_filas = []
+    archivos = sorted(origen.glob("*Total_LONG_mm.csv"))
+    if not archivos:
+        raise ValueError(f"No existen archivos LONG en {origen}")
+    with tempfile.TemporaryDirectory(
+        prefix="sustax_byscen_", dir=str(destino.parent.resolve())
+    ) as tmp:
+        temporal = Path(tmp)
+        for archivo in archivos:
+            datos = pd.read_csv(archivo)
+            requeridas = {
+                "sustax_total", "lat", "lon", "date",
+                "variable", "scenario", "value_mm"
+            }
+            if not requeridas.issubset(datos.columns):
+                raise ValueError(
+                    f"Columnas faltantes en {archivo.name}: "
+                    f"{sorted(requeridas - set(datos.columns))}"
                 )
-                .reset_index()
-            )
-
-            piv.insert(0, "sustax_total", sustax_total)
-            piv.insert(1, "lat", lat)
-            piv.insert(2, "lon", lon)
-
-            out_name = f"{sustax_total}__{sc}__mm.csv"
-            out_fp = os.path.join(out_dir, out_name)
-            piv.to_csv(out_fp, index=False)
-
-            generated.append(out_name)
-
-        summary_rows.append(
-            {
+            if datos.empty:
+                continue
+            sustax_total = str(datos["sustax_total"].iloc[0])
+            lat = float(datos["lat"].iloc[0])
+            lon = float(datos["lon"].iloc[0])
+            generados = []
+            for escenario, grupo in datos.groupby("scenario", sort=True):
+                claves = ["date", "variable"]
+                if grupo.duplicated(subset=claves).any():
+                    raise ValueError(
+                        f"Duplicados no depurados en {archivo.name}: {escenario}"
+                    )
+                tabla = grupo.pivot(
+                    index="date", columns="variable", values="value_mm"
+                ).reset_index()
+                tabla.insert(0, "sustax_total", sustax_total)
+                tabla.insert(1, "lat", lat)
+                tabla.insert(2, "lon", lon)
+                nombre = f"{sustax_total}__{escenario}__mm.csv"
+                tabla.to_csv(temporal / nombre, index=False)
+                generados.append(nombre)
+            resumen_filas.append({
                 "sustax_total": sustax_total,
                 "lat": lat,
                 "lon": lon,
-                "n_scenarios_generated": len(generated),
-                "scenarios_generated": " | ".join(generated),
-            }
-        )
-
-    byscen_summary_df = pd.DataFrame(summary_rows)
-    if not byscen_summary_df.empty:
-        byscen_summary_df = byscen_summary_df.sort_values("sustax_total").reset_index(drop=True)
-
-    byscen_summary_path = os.path.join(out_dir, "SUSTAX_TOTAL_BYSCEN_summary.csv")
-    byscen_summary_df.to_csv(byscen_summary_path, index=False)
-
-    return byscen_summary_df, byscen_summary_path
+                "n_scenarios_generated": len(generados),
+                "scenarios_generated": " | ".join(generados)
+            })
+        resumen = pd.DataFrame(resumen_filas, columns=columnas)
+        resumen.to_csv(temporal / resumen_nombre, index=False)
+        _publicar(temporal, destino, "*__mm.csv", resumen_nombre)
+    return resumen, str(destino / resumen_nombre)
