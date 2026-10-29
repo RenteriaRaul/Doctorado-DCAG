@@ -32,12 +32,17 @@ def _leer_csv_seguro(path):
         return pd.DataFrame()
 
 
+
 def guardar_ejecucion_excedencia(
     resultados, log_df, metadata_df, carpeta_salida, carpeta_fuente,
     patron, threshold, consolidar_duplicados, raster_path=None,
     estado=None, metodo_interpolacion="linear", nx=300, ny=300,
     margin=0.0, fill_nearest=False, crs="EPSG:4326",
+    anio_inicio=None, anio_fin=None,
+    cobertura_minima=None, exigir_cobertura_anual=False,
+    diagnostico=None,
 ):
+
     """Guarda persistentemente una ejecución de excedencias."""
     if resultados is None or resultados.empty:
         raise ValueError("No hay resultados de excedencia para guardar.")
@@ -60,15 +65,25 @@ def guardar_ejecucion_excedencia(
     master_path = run_dir / "MASTER_excedencia_CONAGUA.csv"
     log_path = run_dir / "log_excedencia_CONAGUA.csv"
     metadata_path = run_dir / "metadata_estaciones_CONAGUA.csv"
+    diagnostico_path = run_dir / "diagnostico_cobertura_CONAGUA.csv"
     config_path = run_dir / "run_metadata.json"
-
+    
     resultados.to_csv(master_path, index=False, encoding="utf-8-sig")
     (log_df if log_df is not None and not log_df.empty else pd.DataFrame()).to_csv(
         log_path, index=False, encoding="utf-8-sig"
     )
     (metadata_df if metadata_df is not None and not metadata_df.empty else pd.DataFrame()).to_csv(
-        metadata_path, index=False, encoding="utf-8-sig"
+        metadata_path, index=False, encoding="utf-8-sig",
     )
+    
+    # Guardar diagnóstico de cobertura temporal
+    # con estaciones elegibles y excluidas.
+    if diagnostico is not None:
+        diagnostico.to_csv(
+            diagnostico_path,
+            index=False,
+            encoding="utf-8-sig",
+        )
 
     raster_guardado = None
     if raster_path:
@@ -117,6 +132,31 @@ def guardar_ejecucion_excedencia(
         "metadata_path": str(metadata_path),
         "raster_path": str(raster_guardado) if raster_guardado else None,
         "run_dir": str(run_dir),
+        
+        "anio_inicio": (
+            int(anio_inicio) if anio_inicio is not None else None
+        ),
+        "anio_fin": (
+            int(anio_fin) if anio_fin is not None else None
+        ),
+        "cobertura_minima": (
+            float(cobertura_minima)
+            if cobertura_minima is not None else None
+        ),
+        "exigir_cobertura_anual": bool(exigir_cobertura_anual),
+        "estaciones_evaluadas": (
+            int(len(diagnostico))
+            if diagnostico is not None else None
+        ),
+        "estaciones_excluidas": (
+            int(len(diagnostico) - len(resultados))
+            if diagnostico is not None else None
+        ),
+        "diagnostico_path": (
+            str(diagnostico_path)
+            if diagnostico is not None else None
+        ),
+
     }
 
     config_path.write_text(
@@ -182,8 +222,20 @@ def cargar_ejecucion_excedencia(config):
             resultados["station"].nunique(),
         )
     )
+    diagnostico_path = config.get("diagnostico_path")
 
+    diagnostico = (
+        _leer_csv_seguro(diagnostico_path)
+        if diagnostico_path
+        else pd.DataFrame()
+    )
+    
     raster_metadata = {
+        "anio_inicio": config.get("anio_inicio"),
+        "anio_fin": config.get("anio_fin"),
+        "cobertura_minima": config.get("cobertura_minima"),
+        "exigir_cobertura_anual": config.get(
+            "exigir_cobertura_anual", False ),
         "threshold": float(config.get("threshold_mm", 50.0)),
         "method": config.get("metodo_interpolacion", "linear"),
         "nx": int(config.get("nx", 300)),
@@ -209,6 +261,18 @@ def cargar_ejecucion_excedencia(config):
         "consolidar_duplicados": bool(
             config.get("consolidar_duplicados", True)
         ),
+        
+        "diagnostico": diagnostico,
+        "out_diagnostico": diagnostico_path,
+        "anio_inicio": config.get("anio_inicio"),
+        "anio_fin": config.get("anio_fin"),
+        "cobertura_minima": config.get("cobertura_minima"),
+        "exigir_cobertura_anual": config.get(
+            "exigir_cobertura_anual", False
+        ),
+        "estaciones_evaluadas": config.get("estaciones_evaluadas"),
+        "estaciones_excluidas": config.get("estaciones_excluidas"),
+
         "estado": config.get("estado"),
         "raster_path": raster_path,
         "raster_metadata": raster_metadata,

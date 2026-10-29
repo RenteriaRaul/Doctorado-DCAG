@@ -1,5 +1,6 @@
 from pathlib import Path
 
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -9,7 +10,8 @@ from scripts.conagua_reader import (
     leer_lote_conagua,
 )
 from scripts.exceedance import (
-    procesar_excedencia_batch_conagua,
+    procesar_excedencia_batch_conagua, 
+    procesar_excedencia_batch_con_cobertura,
 )
 from scripts.raster_export import (
     exportar_desde_puntos_a_geotiff,
@@ -488,19 +490,334 @@ st.caption(
 )
 
 
+# INICIO_DIAGNOSTICO_COBERTURA_CONAGUA
+
+# ============================================================
+# 3A. PERIODO DE REFERENCIA Y CALIDAD TEMPORAL
+# ============================================================
+
+st.markdown("### Periodo de análisis y calidad de datos")
+
+st.caption(
+    "Evalúe la disponibilidad de datos diarios de CONAGUA "
+    "antes de realizar la interpolación espacial."
+)
+
+modo_periodo = st.selectbox(
+    "Periodo de referencia",
+    [
+        "2000–2024",
+        "1991–2020",
+        "Personalizado",
+    ],
+    key="exceedance_preview_period",
+)
+
+if modo_periodo == "2000–2024":
+    anio_inicio = 2000
+    anio_fin = 2024
+
+elif modo_periodo == "1991–2020":
+    anio_inicio = 1991
+    anio_fin = 2020
+
+else:
+    columna_inicio, columna_fin = st.columns(2)
+
+    with columna_inicio:
+        anio_inicio = st.number_input(
+            "Año inicial",
+            min_value=1850,
+            max_value=2100,
+            value=2000,
+            step=1,
+            key="exceedance_preview_start",
+        )
+
+    with columna_fin:
+        anio_fin = st.number_input(
+            "Año final",
+            min_value=1850,
+            max_value=2100,
+            value=2024,
+            step=1,
+            key="exceedance_preview_end",
+        )
+
+criterio_cobertura = st.selectbox(
+    "Cobertura mínima",
+    options=[90, 80],
+    format_func=lambda valor: f"{valor} %",
+    key="exceedance_preview_coverage",
+)
+
+exigir_cobertura_anual = st.checkbox(
+    "Exigir cobertura mínima en cada año",
+    value=False,
+    key="exceedance_preview_annual",
+)
+
+if int(anio_inicio) > int(anio_fin):
+
+    st.error(
+        "El año inicial no puede superar al año final."
+    )
+
+elif carpeta_valida:
+
+    try:
+
+        fecha_inicio = pd.Timestamp(
+            year=int(anio_inicio),
+            month=1,
+            day=1,
+        )
+
+        fecha_fin = pd.Timestamp(
+            year=int(anio_fin),
+            month=12,
+            day=31,
+        )
+
+        dias_esperados = (
+            fecha_fin - fecha_inicio
+        ).days + 1
+
+        registros_cobertura = []
+
+        for estacion in estaciones_lectura:
+
+            metadata = estacion.get("metadata", {})
+
+            datos = estacion.get("data")
+
+            if not isinstance(datos, pd.DataFrame):
+                continue
+
+            if not {"date", "pp"}.issubset(datos.columns):
+                continue
+
+            serie = datos[["date", "pp"]].copy()
+
+            serie["date"] = (
+                pd.to_datetime(
+                    serie["date"],
+                    errors="coerce",
+                )
+                .dt.normalize()
+            )
+
+            serie["pp"] = pd.to_numeric(
+                serie["pp"],
+                errors="coerce",
+            )
+
+            serie = serie.dropna(
+                subset=["date", "pp"]
+            )
+
+            serie = serie.loc[
+                serie["pp"] >= 0
+            ]
+
+            # Consolidar observaciones repetidas por día
+            serie = (
+                serie.groupby(
+                    "date",
+                    as_index=False,
+                )["pp"]
+                .max()
+            )
+
+            serie = serie.loc[
+                serie["date"].between(
+                    fecha_inicio,
+                    fecha_fin,
+                )
+            ]
+
+            dias_validos = len(serie)
+
+            porcentaje_cobertura = (
+                100 * dias_validos / dias_esperados
+            )
+
+            cumple_global = (
+                porcentaje_cobertura >= criterio_cobertura
+            )
+
+            anios_incompletos = 0
+
+            for anio in range(
+                int(anio_inicio),
+                int(anio_fin) + 1,
+            ):
+
+                inicio_anual = pd.Timestamp(
+                    year=anio,
+                    month=1,
+                    day=1,
+                )
+
+                fin_anual = pd.Timestamp(
+                    year=anio,
+                    month=12,
+                    day=31,
+                )
+
+                esperados_anuales = (
+                    fin_anual - inicio_anual
+                ).days + 1
+
+                validos_anuales = int(
+                    serie["date"]
+                    .between(
+                        inicio_anual,
+                        fin_anual,
+                    )
+                    .sum()
+                )
+
+                cobertura_anual = (
+                    100
+                    * validos_anuales
+                    / esperados_anuales
+                )
+
+                if cobertura_anual < criterio_cobertura:
+                    anios_incompletos += 1
+
+            elegible = (
+                cumple_global
+                and (
+                    not exigir_cobertura_anual
+                    or anios_incompletos == 0
+                )
+            )
+
+            registros_cobertura.append(
+                {
+                    "Estación": metadata.get("station"),
+                    "Nombre": metadata.get("nombre"),
+                    "Municipio": metadata.get("municipio"),
+                    "Días válidos": dias_validos,
+                    "Días esperados": dias_esperados,
+                    "Cobertura (%)": round(
+                        porcentaje_cobertura,
+                        2,
+                    ),
+                    "Años bajo criterio": anios_incompletos,
+                    "Elegible": elegible,
+                    "Latitud": metadata.get("latitud"),
+                    "Longitud": metadata.get("longitud"),
+                }
+            )
+
+        tabla_cobertura = pd.DataFrame(
+            registros_cobertura
+        )
+
+        if not tabla_cobertura.empty:
+
+            estaciones_elegibles = int(
+                tabla_cobertura["Elegible"].sum()
+            )
+
+            estaciones_excluidas = (
+                len(tabla_cobertura)
+                - estaciones_elegibles
+            )
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric(
+                "Estaciones evaluadas",
+                len(tabla_cobertura),
+            )
+
+            col2.metric(
+                "Estaciones elegibles",
+                estaciones_elegibles,
+            )
+
+            col3.metric(
+                "Estaciones excluidas",
+                estaciones_excluidas,
+            )
+
+            st.dataframe(
+                tabla_cobertura.sort_values(
+                    ["Elegible", "Cobertura (%)"],
+                    ascending=[False, False],
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.download_button(
+                "Descargar diagnóstico de calidad",
+                data=(
+                    tabla_cobertura
+                    .to_csv(index=False)
+                    .encode("utf-8-sig")
+                ),
+                file_name=(
+                    f"cobertura_{anio_inicio}_"
+                    f"{anio_fin}_"
+                    f"{criterio_cobertura}pct.csv"
+                ),
+                mime="text/csv",
+                key="exceedance_preview_download",
+            )
+
+            st.warning(
+                "Etapa de diagnóstico: el periodo y la "
+                "cobertura seleccionados todavía no se "
+                "aplican al cálculo de excedencias. "
+                "Los mapas continúan utilizando el "
+                "procesamiento histórico existente."
+            )
+
+        else:
+
+            st.warning(
+                "No se encontraron estaciones compatibles "
+                "para evaluar la cobertura."
+            )
+
+    except Exception as error:
+
+        st.error(
+            "No fue posible evaluar la cobertura temporal."
+        )
+
+        st.exception(error)
+
+else:
+
+    st.info(
+        "Seleccione primero una carpeta válida "
+        "de estaciones CONAGUA."
+    )
+
+# FIN_DIAGNOSTICO_COBERTURA_CONAGUA
+
+
+
 # ============================================================
 # 4. EJECUCIÓN
 # ============================================================
 
-st.subheader(
-    "4. Ejecutar análisis"
+st.subheader("4. Ejecutar análisis")
+
+periodo_correcto = (
+    int(anio_inicio) <= int(anio_fin)
 )
 
 puede_ejecutar = (
     carpeta_valida
-    and len(
-        estaciones_lectura
-    ) >= 1
+    and len(estaciones_lectura) >= 1
+    and periodo_correcto
 )
 
 if st.button(
@@ -513,66 +830,118 @@ if st.button(
     try:
 
         with st.spinner(
-            "Calculando excedencias y preparando la superficie espacial..."
+            "Calculando excedencias con el periodo "
+            "y la cobertura seleccionados..."
         ):
 
             # =================================================
-            # EXCEDENCIAS
+            # 1. CONFIGURACIÓN TEMPORAL
+            # =================================================
+
+            inicio = int(anio_inicio)
+            fin = int(anio_fin)
+
+            cobertura = float(criterio_cobertura) / 100.0
+
+            cobertura_anual = bool(
+                exigir_cobertura_anual
+            )
+
+            # =================================================
+            # 2. PROCESAMIENTO DE EXCEDENCIAS
             # =================================================
 
             (
                 resultados,
+                diagnostico,
                 log_df,
-                out_master,
-                out_log,
-            ) = procesar_excedencia_batch_conagua(
+            ) = procesar_excedencia_batch_con_cobertura(
                 carpeta_estaciones=carpeta,
                 patron=patron,
-                threshold=float(
-                    threshold
-                ),
+                threshold=float(threshold),
+                anio_inicio=inicio,
+                anio_fin=fin,
+                cobertura_minima=cobertura,
+                exigir_cobertura_anual=cobertura_anual,
                 consolidar_duplicados=(
                     consolidar_duplicados
                 ),
-                exportar=False,
             )
 
-            if (
-                resultados is None
-                or resultados.empty
-            ):
+            if resultados is None or resultados.empty:
                 raise ValueError(
-                    "El análisis no produjo resultados."
+                    "Ninguna estación cumplió los criterios "
+                    "de cobertura del periodo seleccionado."
                 )
 
             # =================================================
-            # GUARDAR TABLA MAESTRA
+            # 3. RESUMEN DE ESTACIONES
             # =================================================
 
-            nombre_umbral = (
-                construir_nombre_umbral(
-                    threshold
-                )
+            n_elegibles = len(resultados)
+
+            n_evaluadas = len(diagnostico)
+
+            n_excluidas = (
+                n_evaluadas - n_elegibles
             )
+
+            # =================================================
+            # 4. NOMBRES DE ARCHIVOS
+            # =================================================
+
+            nombre_umbral = construir_nombre_umbral(
+                threshold
+            )
+
+            nombre_periodo = (
+                f"{inicio}_{fin}"
+            )
+
+            nombre_cobertura = (
+                f"cob{criterio_cobertura}"
+            )
+
+            nombre_anual = (
+                "anual"
+                if cobertura_anual
+                else "global"
+            )
+
+            identificador = (
+                f"{nombre_umbral}mm_"
+                f"{nombre_periodo}_"
+                f"{nombre_cobertura}_"
+                f"{nombre_anual}"
+            )
+
+            # =================================================
+            # 5. GUARDAR RESULTADOS
+            # =================================================
 
             csv_master = (
                 CARPETA_SALIDA
-                / (
-                    "MASTER_excedencia_CONAGUA_"
-                    f"{nombre_umbral}mm.csv"
-                )
+                / f"MASTER_excedencia_CONAGUA_{identificador}.csv"
+            )
+
+            csv_diagnostico = (
+                CARPETA_SALIDA
+                / f"diagnostico_cobertura_{identificador}.csv"
             )
 
             csv_log = (
                 CARPETA_SALIDA
-                / (
-                    "log_excedencia_CONAGUA_"
-                    f"{nombre_umbral}mm.csv"
-                )
+                / f"log_excedencia_CONAGUA_{identificador}.csv"
             )
 
             resultados.to_csv(
                 csv_master,
+                index=False,
+                encoding="utf-8-sig",
+            )
+
+            diagnostico.to_csv(
+                csv_diagnostico,
                 index=False,
                 encoding="utf-8-sig",
             )
@@ -584,7 +953,7 @@ if st.button(
             )
 
             # =================================================
-            # PREPARAR SUPERFICIE ESPACIAL
+            # 6. PREPARAR SUPERFICIE ESPACIAL
             # =================================================
 
             datos_espaciales = (
@@ -599,34 +968,54 @@ if st.button(
                 .copy()
             )
 
-            if len(
-                datos_espaciales
-            ) < 3:
-                raise ValueError(
-                    "Se requieren al menos tres estaciones "
-                    "con coordenadas válidas para generar "
-                    "la superficie espacial."
-                )
+            # Convertir coordenadas a valores numéricos
+            # y excluir coordenadas inválidas.
 
-            tif_path = (
-                CARPETA_SALIDA
-                / (
-                    "excedencia_"
-                    f"{nombre_umbral}mm_"
-                    "interpolada.tif"
+            datos_espaciales["longitud"] = (
+                pd.to_numeric(
+                    datos_espaciales["longitud"],
+                    errors="coerce",
                 )
             )
 
+            datos_espaciales["latitud"] = (
+                pd.to_numeric(
+                    datos_espaciales["latitud"],
+                    errors="coerce",
+                )
+            )
+
+            datos_espaciales = (
+                datos_espaciales
+                .dropna(
+                    subset=[
+                        "longitud",
+                        "latitud",
+                    ]
+                )
+                .copy()
+            )
+
+            if len(datos_espaciales) < 3:
+                raise ValueError(
+                    "Se requieren al menos tres estaciones "
+                    "elegibles con coordenadas válidas para "
+                    "generar la superficie espacial."
+                )
+
             # =================================================
-            # GEOTIFF OBSERVACIONAL
+            # 7. GEOTIFF OBSERVACIONAL
             # =================================================
+
+            tif_path = (
+                CARPETA_SALIDA
+                / f"excedencia_{identificador}_interpolada.tif"
+            )
 
             resultado_tif = (
                 exportar_desde_puntos_a_geotiff(
                     df=datos_espaciales,
-                    out_tif=str(
-                        tif_path
-                    ),
+                    out_tif=str(tif_path),
                     col_lon="longitud",
                     col_lat="latitud",
                     col_val="prob_excedencia",
@@ -643,7 +1032,7 @@ if st.button(
             )
 
             # =================================================
-            # SESSION STATE
+            # 8. SESSION STATE
             # =================================================
 
             st.session_state[
@@ -651,30 +1040,22 @@ if st.button(
             ] = {
                 "resultados": resultados,
                 "log_df": log_df,
-                "out_master": str(
-                    csv_master
-                ),
-                "out_log": str(
-                    csv_log
-                ),
-                "n_archivos": len(
-                    metadata_df
-                ),
-                "threshold": float(
-                    threshold
-                ),
-                "dir_in": str(
-                    carpeta
-                ),
+                "diagnostico": diagnostico,
+                "out_master": str(csv_master),
+                "out_log": str(csv_log),
+                "out_diagnostico": str(csv_diagnostico),
+                "n_archivos": len(metadata_df),
+                "threshold": float(threshold),
+                "dir_in": str(carpeta),
+                "anio_inicio": inicio,
+                "anio_fin": fin,
+                "cobertura_minima": cobertura,
+                "exigir_cobertura_anual": cobertura_anual,
             }
 
             st.session_state[
                 "exceedance_raster_path"
-            ] = str(
-                resultado_tif[
-                    "out_tif"
-                ]
-            )
+            ] = str(resultado_tif["out_tif"])
 
             st.session_state[
                 "exceedance_spatial_data"
@@ -683,9 +1064,11 @@ if st.button(
             st.session_state[
                 "exceedance_raster_metadata"
             ] = {
-                "threshold": float(
-                    threshold
-                ),
+                "threshold": float(threshold),
+                "anio_inicio": inicio,
+                "anio_fin": fin,
+                "cobertura_minima": cobertura,
+                "exigir_cobertura_anual": cobertura_anual,
                 "method": "linear",
                 "nx": RESOLUCION,
                 "ny": RESOLUCION,
@@ -695,18 +1078,14 @@ if st.button(
                 "stations_valid": int(
                     resultado_tif[
                         "calidad"
-                    ][
-                        "total_estaciones_validas"
-                    ]
+                    ]["total_estaciones_validas"]
                 ),
                 "source": "CONAGUA",
-                "source_folder": str(
-                    carpeta
-                ),
+                "source_folder": str(carpeta),
             }
 
             # =================================================
-            # PERSISTENCIA DE LA EJECUCIÓN
+            # 9. PERSISTENCIA DE LA EJECUCIÓN
             # =================================================
 
             if estados_detectados:
@@ -728,9 +1107,7 @@ if st.button(
                     carpeta_salida=CARPETA_SALIDA,
                     carpeta_fuente=carpeta,
                     patron=patron,
-                    threshold=float(
-                        threshold
-                    ),
+                    threshold=float(threshold),
                     consolidar_duplicados=(
                         consolidar_duplicados
                     ),
@@ -744,14 +1121,38 @@ if st.button(
                     margin=0.0,
                     fill_nearest=False,
                     crs=CRS,
+                    anio_inicio=inicio,
+                    anio_fin=fin,
+                    cobertura_minima=cobertura,
+                    exigir_cobertura_anual=cobertura_anual,
+                    diagnostico=diagnostico,
                 )
             )
+
+            # =================================================
+            # 10. RECARGAR EJECUCIÓN GUARDADA
+            # =================================================
 
             ejecucion_cargada = (
                 cargar_ejecucion_excedencia(
                     config_persistente
                 )
             )
+
+            # Agregar temporalmente el diagnóstico
+            # y la configuración a la ejecución cargada.
+            # En la siguiente etapa se incorporarán
+            # al archivo JSON de persistencia.
+
+            ejecucion_cargada["diagnostico"] = diagnostico
+            ejecucion_cargada["anio_inicio"] = inicio
+            ejecucion_cargada["anio_fin"] = fin
+            ejecucion_cargada[
+                "cobertura_minima"
+            ] = cobertura
+            ejecucion_cargada[
+                "exigir_cobertura_anual"
+            ] = cobertura_anual
 
             st.session_state[
                 "exceedance_batch_result"
@@ -763,11 +1164,24 @@ if st.button(
                 "raster_path"
             ]
 
+            metadata_raster = dict(
+                ejecucion_cargada[
+                    "raster_metadata"
+                ]
+            )
+
+            metadata_raster.update(
+                {
+                    "anio_inicio": inicio,
+                    "anio_fin": fin,
+                    "cobertura_minima": cobertura,
+                    "exigir_cobertura_anual": cobertura_anual,
+                }
+            )
+
             st.session_state[
                 "exceedance_raster_metadata"
-            ] = ejecucion_cargada[
-                "raster_metadata"
-            ]
+            ] = metadata_raster
 
             st.session_state[
                 "exceedance_spatial_data"
@@ -785,9 +1199,21 @@ if st.button(
                 .copy()
             )
 
+        # =====================================================
+        # 11. CONFIRMACIÓN
+        # =====================================================
+
         st.success(
-            "El análisis de excedencias y la superficie espacial "
-            "se generaron correctamente."
+            "El análisis de excedencias y la superficie "
+            "espacial se generaron correctamente."
+        )
+
+        st.info(
+            f"Periodo: {inicio}–{fin} | "
+            f"Cobertura mínima: {criterio_cobertura}% | "
+            f"Estaciones evaluadas: {n_evaluadas} | "
+            f"Elegibles: {n_elegibles} | "
+            f"Excluidas: {n_excluidas}"
         )
 
     except Exception as error:
@@ -796,9 +1222,7 @@ if st.button(
             "No fue posible completar el análisis."
         )
 
-        st.exception(
-            error
-        )
+        st.exception(error)
 
 
 # ============================================================

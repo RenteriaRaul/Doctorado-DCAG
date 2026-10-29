@@ -1470,3 +1470,371 @@ def preparar_excedencia_para_interpolacion(
     ].to_numpy()
 
     return df_clean, points, values
+
+
+# ============================================================
+# EXCEDENCIA CON PERIODO COMÚN Y CONTROL DE COBERTURA
+# ============================================================
+
+def calcular_excedencia_con_cobertura(
+    estacion,
+    threshold=50.0,
+    anio_inicio=2000,
+    anio_fin=2024,
+    cobertura_minima=0.90,
+    exigir_cobertura_anual=False,
+    consolidar_duplicados=True,
+):
+    """
+    Calcula la probabilidad empírica de excedencia de una
+    estación CONAGUA dentro de un periodo común.
+
+    La estación se incluye únicamente si cumple la
+    cobertura temporal mínima.
+
+    Parámetros
+    ----------
+    estacion : dict
+        Estructura generada por conagua_reader.py.
+    threshold : float
+        Umbral de precipitación diaria (mm).
+    anio_inicio, anio_fin : int
+        Años del periodo de referencia, inclusive.
+    cobertura_minima : float
+        Proporción mínima de días válidos, entre 0 y 1.
+    exigir_cobertura_anual : bool
+        Si True, exige el mínimo de cobertura en cada año.
+    consolidar_duplicados : bool
+        Si True, consolida fechas repetidas con el máximo.
+
+    Retorna
+    -------
+    dict
+        Resultado con probabilidad y métricas de calidad.
+        Incluye la clave 'elegible'.
+    """
+
+    threshold = _validar_threshold(threshold)
+
+    anio_inicio = int(anio_inicio)
+    anio_fin = int(anio_fin)
+
+    if anio_inicio > anio_fin:
+        raise ValueError(
+            "El año inicial no puede superar al año final."
+        )
+
+    if not 0 <= cobertura_minima <= 1:
+        raise ValueError(
+            "La cobertura mínima debe estar entre 0 y 1."
+        )
+
+    if not isinstance(estacion, dict):
+        raise TypeError(
+            "La estación debe ser un diccionario CONAGUA."
+        )
+
+    metadata = estacion.get("metadata", {})
+    datos = estacion.get("data")
+
+    if not isinstance(datos, pd.DataFrame):
+        raise ValueError(
+            "La estación no contiene un DataFrame válido."
+        )
+
+    # --------------------------------------------------------
+    # 1. LIMPIEZA DE OBSERVACIONES
+    # --------------------------------------------------------
+
+    df_validos, calidad = limpiar_precipitacion_dataframe(
+        df=datos,
+        col_precip="pp",
+        col_fecha="date",
+        consolidar_duplicados=consolidar_duplicados,
+    )
+
+    # --------------------------------------------------------
+    # 2. SELECCIÓN DEL PERIODO
+    # --------------------------------------------------------
+
+    fecha_inicio = pd.Timestamp(
+        year=anio_inicio,
+        month=1,
+        day=1,
+    )
+
+    fecha_fin = pd.Timestamp(
+        year=anio_fin,
+        month=12,
+        day=31,
+    )
+
+    # Normalizar fechas para trabajar por día calendario.
+    df_validos = df_validos.copy()
+    df_validos["date"] = (
+        pd.to_datetime(df_validos["date"])
+        .dt.normalize()
+    )
+
+    # Asegurar una observación por día, incluso cuando
+    # la fecha original incluya horas diferentes.
+    if consolidar_duplicados:
+        df_validos = (
+            df_validos.groupby(
+                "date",
+                as_index=False,
+            )["pp"]
+            .max()
+        )
+
+    df_periodo = df_validos.loc[
+        df_validos["date"].between(
+            fecha_inicio,
+            fecha_fin,
+        )
+    ].copy()
+
+    dias_esperados = (
+        fecha_fin - fecha_inicio
+    ).days + 1
+
+    # Días calendario únicos con precipitación válida.
+    dias_validos = int(
+        df_periodo["date"].nunique()
+    )
+
+    cobertura = (
+        dias_validos / dias_esperados
+        if dias_esperados > 0
+        else np.nan
+    )
+
+    # --------------------------------------------------------
+    # 3. COBERTURA ANUAL
+    # --------------------------------------------------------
+
+    coberturas_anuales = []
+
+    for anio in range(anio_inicio, anio_fin + 1):
+
+        inicio_anual = pd.Timestamp(
+            year=anio,
+            month=1,
+            day=1,
+        )
+
+        fin_anual = pd.Timestamp(
+            year=anio,
+            month=12,
+            day=31,
+        )
+
+        esperados_anuales = (
+            fin_anual - inicio_anual
+        ).days + 1
+
+        validos_anuales = int(
+            df_periodo.loc[
+                df_periodo["date"].between(
+                    inicio_anual,
+                    fin_anual,
+                ),
+                "date",
+            ].nunique()
+        )
+
+        cobertura_anual = (
+            validos_anuales / esperados_anuales
+        )
+
+        coberturas_anuales.append(
+            cobertura_anual
+        )
+
+    anios_bajo_criterio = sum(
+        valor < cobertura_minima
+        for valor in coberturas_anuales
+    )
+
+    cumple_global = (
+        cobertura >= cobertura_minima
+    )
+
+    cumple_anual = (
+        not exigir_cobertura_anual
+        or anios_bajo_criterio == 0
+    )
+
+    elegible = bool(
+        cumple_global and cumple_anual
+    )
+
+    # --------------------------------------------------------
+    # 4. PROBABILIDAD DE EXCEDENCIA
+    # --------------------------------------------------------
+
+    dias_excedencia = int(
+        (
+            df_periodo["pp"] >= threshold
+        ).sum()
+    )
+
+    prob_excedencia = (
+        dias_excedencia / dias_validos
+        if dias_validos > 0
+        else np.nan
+    )
+
+    # --------------------------------------------------------
+    # 5. RESULTADO
+    # --------------------------------------------------------
+
+    resultado = {
+        "station": metadata.get("station"),
+        "nombre": metadata.get("nombre"),
+        "estado": metadata.get("estado"),
+        "municipio": metadata.get("municipio"),
+        "situacion": metadata.get("situacion"),
+        "latitud": metadata.get("latitud"),
+        "longitud": metadata.get("longitud"),
+        "altitud_msnm": metadata.get("altitud_msnm"),
+        "archivo": metadata.get("archivo"),
+
+        "threshold_mm": threshold,
+        "anio_inicio": anio_inicio,
+        "anio_fin": anio_fin,
+        "cobertura_minima": cobertura_minima,
+        "exigir_cobertura_anual": (
+            exigir_cobertura_anual
+        ),
+
+        "dias_esperados": dias_esperados,
+        "total_dias": dias_validos,
+        "total_dias_validos": dias_validos,
+        "dias_excedencia": dias_excedencia,
+        "prob_excedencia": prob_excedencia,
+
+        "cobertura_temporal": cobertura,
+        "cobertura_porcentaje": cobertura * 100,
+        "anios_bajo_criterio": anios_bajo_criterio,
+        "elegible": elegible,
+
+        "fecha_inicio": (
+            df_periodo["date"].min()
+            if not df_periodo.empty
+            else pd.NaT
+        ),
+        "fecha_fin": (
+            df_periodo["date"].max()
+            if not df_periodo.empty
+            else pd.NaT
+        ),
+        "n_anios": (
+            df_periodo["date"].dt.year.nunique()
+            if not df_periodo.empty
+            else 0
+        ),
+    }
+
+    # Conservar métricas originales de calidad,
+    # identificándolas como correspondientes al historial.
+    for clave, valor in calidad.items():
+        if clave not in resultado:
+            resultado[clave] = valor
+
+    return resultado
+
+
+# ============================================================
+# PROCESAMIENTO POR LOTES CON COBERTURA TEMPORAL
+# ============================================================
+
+def procesar_excedencia_batch_con_cobertura(
+    carpeta_estaciones,
+    patron="*.xlsx",
+    threshold=50.0,
+    anio_inicio=2000,
+    anio_fin=2024,
+    cobertura_minima=0.90,
+    exigir_cobertura_anual=False,
+    consolidar_duplicados=True,
+):
+    """
+    Procesa las estaciones CONAGUA con un periodo común
+    y criterios de cobertura temporal.
+
+    Retorna
+    -------
+    resultados : pd.DataFrame
+        Estaciones elegibles para el análisis.
+    diagnostico : pd.DataFrame
+        Todas las estaciones evaluadas, incluidas las
+        excluidas por cobertura.
+    log_df : pd.DataFrame
+        Incidencias de lectura o procesamiento.
+    """
+
+    from scripts.conagua_reader import leer_lote_conagua
+
+    (
+        estaciones,
+        metadata_df,
+        log_lectura,
+    ) = leer_lote_conagua(
+        carpeta=carpeta_estaciones,
+        patron=patron,
+    )
+
+    resultados = []
+    diagnostico = []
+    incidencias = []
+
+    for estacion in estaciones:
+
+        try:
+
+            resultado = calcular_excedencia_con_cobertura(
+                estacion=estacion,
+                threshold=threshold,
+                anio_inicio=anio_inicio,
+                anio_fin=anio_fin,
+                cobertura_minima=cobertura_minima,
+                exigir_cobertura_anual=exigir_cobertura_anual,
+                consolidar_duplicados=consolidar_duplicados,
+            )
+
+            diagnostico.append(resultado)
+
+            if resultado["elegible"]:
+                resultados.append(resultado)
+
+        except Exception as error:
+
+            metadata = estacion.get("metadata", {})
+
+            incidencias.append(
+                {
+                    "station": metadata.get("station"),
+                    "archivo": metadata.get("archivo"),
+                    "error": str(error),
+                }
+            )
+
+    df_resultados = pd.DataFrame(resultados)
+    df_diagnostico = pd.DataFrame(diagnostico)
+    df_incidencias = pd.DataFrame(incidencias)
+
+    # Conservar las incidencias de lectura cuando existan.
+    if isinstance(log_lectura, pd.DataFrame):
+        if not log_lectura.empty:
+            df_incidencias = pd.concat(
+                [log_lectura, df_incidencias],
+                ignore_index=True,
+            )
+
+    return (
+        df_resultados,
+        df_diagnostico,
+        df_incidencias,
+    )
+
