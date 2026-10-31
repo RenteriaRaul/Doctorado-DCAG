@@ -30,3 +30,10 @@ results/test_mapas/
 results/test_territorial_mapping/
 results/streamlit/
 results/test_pipeline_conagua/
+# Datos CONAGUA descargados y pruebas locales
+/CONAGUA/datos_prueba/
+/CONAGUA/estaciones_descargadas/
+
+# Respaldos y resultados de pruebas voluminosos
+/results/backups/
+/results/tests/
