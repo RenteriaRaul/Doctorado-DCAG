@@ -1,0 +1,4 @@
+﻿clave,nombre,archivo,filas_originales,filas_validas,fechas_invalidas,fechas_duplicadas,fecha_inicio,fecha_fin,precip_max,eventos_50mm,faltantes_precip
+6001,ARMERIA,CONAGUA\datos_prueba\6001_ARMERIA.xlsx,26608,26608,0,0,1949-01-01,2025-10-31,371.0,270,49
+6002,BUENAVISTA,CONAGUA\datos_prueba\6002_BUENAVISTA.xlsx,30864,30864,0,0,1921-01-01,2026-08-21,248.0,294,124
+6003,CALLEJONES,CONAGUA\datos_prueba\6003_CALLEJONES.xlsx,27401,27401,0,0,1948-12-19,2025-06-02,424.9,258,46
