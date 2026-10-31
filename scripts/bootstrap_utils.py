@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import genextreme as gev
+from scripts.gev_fit import ajustar_gev_multinicio
 
 
 def bootstrap_robusto(
@@ -8,8 +9,8 @@ def bootstrap_robusto(
     n_boot=500,
     alpha=0.05,
     rng=None,
-    shape_bounds=(-0.35, 0.35),
-    max_rel_factor=10.0,
+    shape_bounds=None,
+    max_rel_factor=None,
 ):
     """
     Bootstrap no paramétrico robusto para intervalos de confianza de niveles de retorno GEV.
@@ -69,13 +70,13 @@ def bootstrap_robusto(
         muestra = rng.choice(datos, size=len(datos), replace=True)
 
         try:
-            c_b, loc_b, scale_b = gev.fit(muestra)
+            c_b, loc_b, scale_b = ajustar_gev_multinicio(muestra)
 
             if not np.isfinite([c_b, loc_b, scale_b]).all():
                 continue
             if scale_b <= 0:
                 continue
-            if not (shape_bounds[0] <= c_b <= shape_bounds[1]):
+            if shape_bounds is not None and not (shape_bounds[0] <= c_b <= shape_bounds[1]):
                 continue
 
             q = gev.ppf(1 - 1 / niveles_retorno, c_b, loc=loc_b, scale=scale_b)
@@ -84,7 +85,7 @@ def bootstrap_robusto(
                 continue
             if np.any(q <= 0):
                 continue
-            if np.nanmax(q) > max_rel_factor * max_obs:
+            if max_rel_factor is not None and np.nanmax(q) > max_rel_factor * max_obs:
                 continue
 
             replicas_validas.append(q)
@@ -165,7 +166,7 @@ def bootstrap_parametrico(
     for _ in range(n_boot):
         try:
             muestra_sim = gev.rvs(c, loc=loc, scale=scale, size=n_muestra, random_state=rng)
-            c_b, loc_b, scale_b = gev.fit(muestra_sim)
+            c_b, loc_b, scale_b = ajustar_gev_multinicio(muestra_sim)
 
             if not np.isfinite([c_b, loc_b, scale_b]).all():
                 continue

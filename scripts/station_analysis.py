@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import genextreme as gev
 
+from scripts.gev_fit import ajustar_gev_multinicio
 from scripts.bootstrap_utils import (
     bootstrap_parametrico,
     bootstrap_robusto,
@@ -215,9 +216,7 @@ def ajustar_gev(
             "No hay datos para ajustar la distribución GEV."
         )
 
-    c, loc, scale = gev.fit(
-        datos
-    )
+    c, loc, scale = ajustar_gev_multinicio(datos)
 
     if (
         not np.isfinite(
@@ -688,11 +687,8 @@ def _procesar_dataframe_gev(
         n_boot=n_boot,
         alpha=alpha,
         rng=rng,
-        shape_bounds=(
-            -0.35,
-            0.35,
-        ),
-        max_rel_factor=10.0,
+        shape_bounds=None,
+        max_rel_factor=None,
     )
 
     if usar_boot_parametrico:
