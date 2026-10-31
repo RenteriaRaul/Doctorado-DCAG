@@ -40,3 +40,6 @@ results/test_pipeline_conagua/
 
 # Copias locales del visor de CONAGUA
 /backups/inspeccion_conagua/
+
+# Respaldos historicos de diferencias Git
+/backups/historial_git/
