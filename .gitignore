@@ -37,3 +37,6 @@ results/test_pipeline_conagua/
 # Respaldos y resultados de pruebas voluminosos
 /results/backups/
 /results/tests/
+
+# Copias locales del visor de CONAGUA
+/backups/inspeccion_conagua/
