@@ -43,3 +43,9 @@ results/test_pipeline_conagua/
 
 # Respaldos historicos de diferencias Git
 /backups/historial_git/
+
+# Datos geoespaciales originales de INEGI
+datos_territoriales/
+
+# Resultados geoespaciales generados
+/results/territorial/
