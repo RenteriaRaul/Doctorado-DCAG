@@ -1,0 +1,33 @@
+{
+  "municipio": "Villa de Álvarez, Colima",
+  "experimental": true,
+  "calibrated": false,
+  "configuraciones": {
+    "A": {
+      "pendiente": [0, 10],
+      "distancia_cauces": [0, 100],
+      "hand": [0, 5],
+      "acumulacion_flujo": [1, 1000]
+    },
+    "B": {
+      "pendiente": [0, 20],
+      "distancia_cauces": [0, 300],
+      "hand": [0, 15],
+      "acumulacion_flujo": [1, 6035]
+    },
+    "C": {
+      "pendiente": ["p05", "p95"],
+      "distancia_cauces": ["p05", "p95"],
+      "hand": ["p05", "p95"],
+      "acumulacion_flujo": ["p05", "p95"]
+    }
+  },
+  "textura": {
+    "T1": 0.25,
+    "T2": 0.50,
+    "T3": 0.75,
+    "known_original_codes": {"1": 0.25, "2": 0.50, "3": 0.75},
+    "out_of_documented_domain_source_value": "N/A"
+  },
+  "uso_suelo": "Mapping exhaustivo de 21 categorías de scripts/factor_normalization.py; valores ordinales experimentales"
+}
