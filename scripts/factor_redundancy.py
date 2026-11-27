@@ -89,8 +89,15 @@ def log1p_valid(values,valid):
     if np.any(out[mask]<0): raise ValueError("log1p requiere valores válidos no negativos")
     out[mask]=np.log1p(out[mask]); return out
 
-def load_catalog(path,usv=False):
+def load_catalog(path,usv=False,variable=None):
     d=pd.read_csv(path,dtype=str,keep_default_na=False); out={}
+    if not usv:
+        if "variable" not in d.columns:
+            raise ValueError(f"El catálogo edafológico carece del campo variable: {path}")
+        if variable is not None:
+            d=d.loc[d["variable"]==variable]
+            if d.empty:
+                raise KeyError(f"No hay categorías catalogadas para la variable {variable}: {path}")
     for _,r in d.iterrows():
         code=int(r.raster_code); out[code]=({"value":r.CLAVE,"label":r.DESCRIPCIO,"kind":"categoria_original"} if usv else {"value":r.source_value,"label":r.inegi_category_name,"kind":r.category_kind})
     return out
@@ -139,7 +146,7 @@ def vif_plot_matrix(tables,names,cap=30):
     return z
 
 def analyze(cp,kp,catalogs,output_root,run_id=None,grid_spec=None):
-    out=create_run_dir(output_root,run_id); a,m,domain,common,grid,meta=read_stack(cp,kp,**(grid_spec or {})); cn,kn=list(cp),list(kp); cats={n:load_catalog(catalogs[n],n=="uso_suelo_vegetacion") for n in kn}
+    out=create_run_dir(output_root,run_id); a,m,domain,common,grid,meta=read_stack(cp,kp,**(grid_spec or {})); cn,kn=list(cp),list(kp); cats={n:load_catalog(catalogs[n],n=="uso_suelo_vegetacion",variable=n) for n in kn}
     desc=[{"factor":n,**descriptive_statistics(a[n][m[n]]),"nodata_en_dominio":int((domain&~m[n]).sum())} for n in cn]; pd.DataFrame(desc).to_csv(out/"estadistica_descriptiva_continuas.csv",index=False,encoding="utf-8-sig")
     freq=[]
     for n in kn:

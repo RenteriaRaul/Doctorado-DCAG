@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 from scripts.factor_redundancy import (
     descriptive_statistics,correlations,vif_tolerance,categorical_association,
-    eta_squared,systematic_indices,create_run_dir,log1p_valid,vif_plot_matrix,read_stack,refresh_selection_table
+    eta_squared,systematic_indices,create_run_dir,log1p_valid,vif_plot_matrix,read_stack,refresh_selection_table,load_catalog
 )
 
 class TestFactorRedundancy(unittest.TestCase):
@@ -88,5 +88,20 @@ class TestFactorRedundancy(unittest.TestCase):
             result=pd.read_csv(p/"matriz_seleccion_factores.csv")
             self.assertIn("rP=0.800",result.loc[result.factor=="x","asociaciones_principales"].iloc[0])
             self.assertIn("c: V=0.500",result.loc[result.factor=="d","asociaciones_principales"].iloc[0])
+
+    def test_catalog_lookup_is_scoped_to_each_variable(self):
+        import pandas as pd
+        with tempfile.TemporaryDirectory() as td:
+            p=Path(td)/"catalog.csv"
+            pd.DataFrame([
+                {"variable":"textura_superficial","raster_code":1,"source_value":"1","inegi_category_name":"Gruesa","category_kind":"categoria_original"},
+                {"variable":"fase_fisica","raster_code":1,"source_value":"len","inegi_category_name":"Endoléptico","category_kind":"categoria_original"},
+                {"variable":"suelo_dominante","raster_code":1,"source_value":"AN","inegi_category_name":"Andosol","category_kind":"categoria_original"},
+            ]).to_csv(p,index=False)
+            texture=load_catalog(p,variable="textura_superficial")
+            soil=load_catalog(p,variable="suelo_dominante")
+            self.assertEqual(texture[1]["label"],"Gruesa")
+            self.assertEqual(soil[1]["label"],"Andosol")
+            self.assertNotIn("len",[v["value"] for v in texture.values()])
 
 if __name__=="__main__": unittest.main()

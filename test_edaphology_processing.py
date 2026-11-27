@@ -17,11 +17,13 @@ from scripts.edaphology_processing import (
     _surface_statistics,
     assert_new_output_dir,
     category_kind,
+    category_kind_for_field,
     find_overlaps,
     inegi_category_name,
     prepare_polygon_records,
     rasterize_categories,
     stable_category_mapping,
+    validate_conditional_na,
     validate_reference_grid,
 )
 
@@ -47,7 +49,25 @@ class TestEdaphologyProcessing(unittest.TestCase):
         self.assertEqual(inegi_category_name("Grupo1","LP"),"Leptosol")
         self.assertEqual(inegi_category_name("Clase_tex",2),"Media")
         self.assertEqual(inegi_category_name("Grupo2","N"),"Ninguno")
-        self.assertEqual(inegi_category_name("Fase_qui_u","N/A"),"No aplicable")
+        self.assertEqual(inegi_category_name("Fase_qui_u","N/A"),"Código fuente fuera del dominio documentado; valor preservado")
+
+    def test_official_field_specific_domains_for_texture_and_phases(self):
+        for code,label in [("1","Gruesa"),("2","Media"),("3","Fina")]:
+            self.assertEqual(inegi_category_name("Clase_tex",code),label)
+            self.assertEqual(category_kind_for_field("Clase_tex",code),"categoria_original")
+        self.assertEqual(category_kind_for_field("Clase_tex","N/D"),"no_disponible_o_desconocido")
+        self.assertEqual(category_kind_for_field("Clase_tex","N/A"),"fuera_del_dominio_documentado")
+        self.assertEqual(category_kind_for_field("Fase_qui_u","N/D"),"no_disponible_o_desconocido")
+        self.assertEqual(category_kind_for_field("Fase_qui_u","N/A"),"fuera_del_dominio_documentado")
+        self.assertEqual(category_kind_for_field("Lmte_sup","N/A"),"no_aplicable")
+        self.assertEqual(category_kind_for_field("Fase_fis_u","N/A"),"no_aplicable")
+        self.assertEqual(inegi_category_name("Clase_tex","N/A"),"Código fuente fuera del dominio documentado; valor preservado")
+
+    def test_conditional_na_for_surface_limit_and_physical_phase_requires_technosol(self):
+        valid=[{"feature_id":"t1","properties":{"Grupo1":"TC","Lmte_sup":"N/A","Fase_fis_u":"N/A"}}]
+        invalid=[{"feature_id":"x1","properties":{"Grupo1":"LP","Lmte_sup":"N/A","Fase_fis_u":"N/A"}}]
+        self.assertEqual(validate_conditional_na(valid),[])
+        self.assertEqual(len(validate_conditional_na(invalid)),2)
 
     def test_rasterization_preserves_codes_and_nodata(self):
         transform=Affine(1,0,0,0,-1,2)

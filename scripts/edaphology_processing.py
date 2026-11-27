@@ -42,10 +42,10 @@ PROFILE_RADIUS_M = 15000.0
 VARIABLES = {
     "suelo_dominante": {"field": "Grupo1", "title": "Suelo dominante", "definition": "Código del grupo de suelo dominante (al menos 60% de la unidad).", "domain": "Grupos de suelo INEGI/WRB; códigos conservados."},
     "suelo_secundario": {"field": "Grupo2", "title": "Suelo secundario", "definition": "Código del grupo secundario (estimado entre 20% y 40% de la unidad).", "domain": "Grupos de suelo INEGI/WRB; N/N/A conservados como categorías especiales."},
-    "textura_superficial": {"field": "Clase_tex", "title": "Textura superficial", "definition": "Textura de los primeros 30 cm del suelo dominante.", "domain": "1 gruesa; 2 media; 3 fina; otros códigos/sentinelas preservados."},
-    "limitante_fisica": {"field": "Lmte_sup", "title": "Limitante física superficial", "definition": "Fragmentos de roca/mineral estimados en más de 30% del área.", "domain": "P pedregosa; G gravosa; N/N/A preservados."},
-    "fase_fisica": {"field": "Fase_fis_u", "title": "Fase física", "definition": "Material duro, roca continua o cementación en algún punto entre 0 y 100 cm.", "domain": "Códigos INEGI de fase física; N/N/A preservados."},
-    "fase_quimica": {"field": "Fase_qui_u", "title": "Fase química", "definition": "Salinidad, sodicidad o saturación de sodio más magnesio.", "domain": "Códigos INEGI de fase química; N conservado."},
+    "textura_superficial": {"field": "Clase_tex", "title": "Textura superficial", "definition": "Textura de los primeros 30 cm del suelo dominante.", "domain": "1 gruesa; 2 media; 3 fina; N/D no disponible; códigos no incluidos en el dominio quedan explícitos."},
+    "limitante_fisica": {"field": "Lmte_sup", "title": "Limitante física superficial", "definition": "Fragmentos de roca/mineral estimados en más de 30% del área.", "domain": "P pedregosa; G gravosa; N ninguno; N/A solo con Grupo1 Technosol."},
+    "fase_fisica": {"field": "Fase_fis_u", "title": "Fase física", "definition": "Material duro, roca continua o cementación en algún punto entre 0 y 100 cm.", "domain": "Códigos INEGI de fase física; N ninguno; N/A solo con Grupo1 Technosol."},
+    "fase_quimica": {"field": "Fase_qui_u", "title": "Fase química", "definition": "Salinidad, sodicidad o saturación de sodio más magnesio.", "domain": "Códigos INEGI de fase química; N ninguno; N/D no disponible; N/A no documentado."},
 }
 
 ATTRIBUTE_CROSSWALK = [
@@ -58,10 +58,10 @@ ATTRIBUTE_CROSSWALK = [
     ("Califs_g2", "Calificador secundario secundario", "area", "Segunda cualidad del grupo secundario", "catálogo; sin GeoTIFF solicitado"),
     ("Califp_g3", "Calificador primario terciario", "area", "Cualidad del grupo terciario", "catálogo; sin GeoTIFF solicitado"),
     ("Califs_g3", "Calificador secundario terciario", "area", "Segunda cualidad del grupo terciario", "catálogo; sin GeoTIFF solicitado"),
-    ("Clase_tex", "Textura del suelo", "area", "Código 1 gruesa, 2 media, 3 fina; suelo dominante, 30 cm superficiales", "rasterizado"),
-    ("Lmte_sup", "Limitante física superficial", "area", "Código P pedregosa o G gravosa; N/N/A con significado normativo", "rasterizado"),
-    ("Fase_fis_u", "Fase física de unidad", "area", "Fase física del suelo según códigos INEGI", "rasterizado"),
-    ("Fase_qui_u", "Fase química de unidad", "area", "Fase química del suelo según códigos INEGI", "rasterizado"),
+    ("Clase_tex", "Textura del suelo", "area", "1 gruesa, 2 media, 3 fina; N/D no disponible; N/A no listado para este atributo; suelo dominante, 30 cm superficiales", "rasterizado"),
+    ("Lmte_sup", "Limitante física superficial", "area", "P pedregosa o G gravosa; N ninguno; N/A solo si Grupo1 es Technosol", "rasterizado"),
+    ("Fase_fis_u", "Fase física de unidad", "area", "li/lep/len y códigos de fase; N ninguno; N/A solo si Grupo1 es Technosol", "rasterizado"),
+    ("Fase_qui_u", "Fase química de unidad", "area", "qz/sz/jz/qs/so; N ninguno; N/D no disponible; N/A no listado para este atributo", "rasterizado"),
     ("Infiltra", "Infiltración", "pto", "Velocidad cualitativa dentro del perfil; no es una tasa", "complementario; no extrapolar"),
     ("Escurr_sup", "Escurrimiento superficial", "pto", "Velocidad cualitativa sobre la superficie", "complementario; no extrapolar"),
     ("DA", "Densidad aparente", "pto", "Masa seca por volumen; valor analítico por horizonte", "complementario; validar unidades"),
@@ -111,26 +111,85 @@ def category_kind(value) -> str:
     return "categoria_original"
 
 
+def category_kind_for_field(field, value) -> str:
+    """Clasifica sentinelas con el dominio específico de cada atributo INEGI v4."""
+    if _is_null(value) or (isinstance(value, str) and not value.strip()):
+        return "nulo_real"
+    code = str(value).strip().upper()
+    if field in {"Grupo1", "Grupo2", "Grupo3"}:
+        if code in GROUP_NAMES:
+            return "categoria_original"
+        if field in {"Grupo2", "Grupo3"} and code == "N":
+            return "ausencia_indicada"
+        return "fuera_del_dominio_documentado"
+    if field == "Clase_tex":
+        if code in {"1", "2", "3"}:
+            return "categoria_original"
+        if code == "N/D":
+            return "no_disponible_o_desconocido"
+        return "fuera_del_dominio_documentado"
+    if field == "Lmte_sup":
+        if code in {"P", "G"}:
+            return "categoria_original"
+        if code == "N":
+            return "ausencia_indicada"
+        if code == "N/A":
+            return "no_aplicable"
+        return "fuera_del_dominio_documentado"
+    if field == "Fase_fis_u":
+        if code in PHYSICAL_PHASE_NAMES:
+            return "categoria_original"
+        if code == "N":
+            return "ausencia_indicada"
+        if code == "N/A":
+            return "no_aplicable"
+        return "fuera_del_dominio_documentado"
+    if field == "Fase_qui_u":
+        if code in CHEMICAL_PHASE_NAMES:
+            return "categoria_original"
+        if code == "N":
+            return "ausencia_indicada"
+        if code == "N/D":
+            return "no_disponible_o_desconocido"
+        return "fuera_del_dominio_documentado"
+    return category_kind(value)
+
+
+def validate_conditional_na(records):
+    """Verifica la condición INEGI: N/A en limitante/fase física solo con Technosol dominante."""
+    violations = []
+    for record in records:
+        props = record["properties"]
+        if str(props.get("Grupo1", "")).strip().upper() != "TC":
+            for field in ("Lmte_sup", "Fase_fis_u"):
+                if str(props.get(field, "")).strip().upper() == "N/A":
+                    violations.append({"feature_id": str(record.get("feature_id", "")), "field": field, "Grupo1": props.get("Grupo1"), "value": "N/A"})
+    return violations
+
+
 def inegi_category_name(field, value) -> str:
     """Return a label only when the official dictionary gives a verified code."""
     if _is_null(value) or (isinstance(value, str) and not value.strip()):
         return "Nulo real"
-    kind=category_kind(value)
+    kind=category_kind_for_field(field, value)
+    if kind == "fuera_del_dominio_documentado":
+        return "Código fuente fuera del dominio documentado; valor preservado"
     if kind=="ausencia_indicada": return "Ninguno"
-    if kind=="no_aplicable": return "No aplicable"
+    if kind=="no_aplicable":
+        return "No aplicable (suelo dominante Technosol)" if field in {"Lmte_sup", "Fase_fis_u"} else "No aplicable"
     if kind=="no_disponible_o_desconocido": return "No disponible/desconocido"
     raw=str(value).strip()
     upper=raw.upper()
     if field in {"Grupo1","Grupo2","Grupo3"}:
         return GROUP_NAMES.get(upper, "Código de grupo no listado")
     if field=="Clase_tex":
-        return {"1":"Gruesa","2":"Media","3":"Fina","N/D":"No disponible","N/A":"No aplicable","N":"Ninguno"}.get(upper,"Código de textura no listado")
+        return {"1":"Gruesa","2":"Media","3":"Fina","N/D":"No disponible"}.get(upper,"Código de textura no listado")
     if field=="Lmte_sup":
-        return {"P":"Pedregosa","G":"Gravosa","N":"Ninguno","N/A":"No aplicable","N/D":"No disponible"}.get(upper,"Código de limitante no listado")
+        return {"P":"Pedregosa","G":"Gravosa","N":"Ninguno","N/A":"No aplicable (suelo dominante Technosol)"}.get(upper,"Código de limitante no listado")
     if field=="Fase_fis_u":
-        return {**PHYSICAL_PHASE_NAMES,"N":"Ninguno","N/A":"No aplicable"}.get(upper,"Código de fase física no listado")
+        return {**PHYSICAL_PHASE_NAMES,"N":"Ninguno","N/A":"No aplicable (suelo dominante Technosol)"}.get(upper,"Código de fase física no listado")
     if field=="Fase_qui_u":
-        return {**CHEMICAL_PHASE_NAMES,"N":"Ninguno"}.get(upper,"Código de fase química no listado")
+        return {**CHEMICAL_PHASE_NAMES,"N":"Ninguno","N/D":"No disponible"}.get(upper,"Código de fase química no listado")
     if category_kind(value)=="ausencia_indicada": return "Ninguno"
     if category_kind(value)=="no_aplicable": return "No aplicable"
     if category_kind(value)=="no_disponible_o_desconocido": return "No disponible/desconocido"
@@ -257,7 +316,7 @@ def _category_catalog(field, mapping, values):
     result = []
     for key, code in sorted(mapping.items(), key=lambda pair: pair[1]):
         value = by_key[key]
-        result.append({"raster_code": code, "source_field": field, "source_value": str(value), "inegi_category_name": inegi_category_name(field,value), "source_value_typed_json": _value_display(value), "category_kind": category_kind(value), "nodata_code": NODATA})
+        result.append({"raster_code": code, "source_field": field, "source_value": str(value), "inegi_category_name": inegi_category_name(field,value), "source_value_typed_json": _value_display(value), "category_kind": category_kind_for_field(field,value), "nodata_code": NODATA})
     return result
 
 
@@ -375,6 +434,9 @@ def process_edaphology(area_path: Path, pto_path: Path, boundary_path: Path, gri
     records = [{**r, "geometry": _polygonal(r["geometry"].intersection(municipality))} for r in records]
     records = [r for r in records if r["geometry"] is not None and not r["geometry"].is_empty]
     invalid_report = geometry_metrics([r["geometry"] for r in records])
+    conditional_na_violations = validate_conditional_na(records)
+    if conditional_na_violations:
+        raise ValueError(f"N/A en Lmte_sup/Fase_fis_u fuera de la condición Technosol del diccionario: {conditional_na_violations[:10]}")
 
     overlaps = find_overlaps(records, required_fields)
     conflicts = [row for row in overlaps if row["contradictory_values"]]
@@ -432,7 +494,8 @@ def process_edaphology(area_path: Path, pto_path: Path, boundary_path: Path, gri
             arr=dst.read(1)
             final_mask_reports[variable]={"crs":dst.crs.to_string(),"width":dst.width,"height":dst.height,"resolution_m":list(dst.res),"transform":list(dst.transform),"nodata":dst.nodata,"municipal_mask_cells":int(inside_mask.sum()),"valid_category_cells":int(np.count_nonzero(inside_mask & (arr!=NODATA))),"outside_mask_values_are_nodata":bool(np.all(arr[~inside_mask]==NODATA)),"values_within_catalog":bool(set(np.unique(arr[inside_mask]).tolist())- {NODATA} <= set(row["raster_code"] for row in category_rows if row["source_field"]==spec["field"]))}
     vector_coverage=coverage_pct([r["geometry"] for r in records],municipality)
-    manifest={"created_utc":datetime.now(timezone.utc).isoformat(),"project":"Doctorado-DCAG","municipality":"Villa de Álvarez, Colima","source":{"area_path":str(area_path),"area_layer":"area","pto_path":str(pto_path),"pto_layer":"pto","metadata":"Serie III, INEGI, escala 1:250 000, WRB 2014; Diccionario v4 (2016)"},"prior_audit_reused":{"coverage_json":str(audit_coverage_path),"profiles_inside_municipality":previous_audit.get("profiles_inside_municipality"),"profiles_in_regional_support":previous_audit.get("profiles_in_regional_support")},"grid_reference":{"path":str(grid_path),"crs":"EPSG:6368","resolution_m":list(EXPECTED_RESOLUTION),"width":EXPECTED_WIDTH,"height":EXPECTED_HEIGHT,"transform":list(transform),"municipal_mask_cells":int(inside_mask.sum()),"mask_matches_reference":True,"existing_physical_rasters_checked":[str(p) for p in companion_rasters]},"processing":{"spatial_selection":"municipal bounding box followed by exact intersection; selected features only","selected_polygon_count":len(records),"municipality_area_km2":float(municipality.area/1_000_000),"vector_coverage":vector_coverage,"invalid_geometries_selected_and_repaired":repairs,"post_repair_geometry_audit":invalid_report,"overlap_rows":len(overlaps),"contradictory_overlaps":len(conflicts),"overlap_policy":"positive-area contradictory overlaps block rasterization; identical category overlap is value-invariant; pixel-center burn; sort by feature id","nodata_by_source_field_inside_municipality":nodata_by_field,"categorical_interpolation":"none","point_interpolation":"none","profile_features_catalogued":profile_count,"raster_validation":final_mask_reports},"products":[{"variable":name,"field":spec["field"],"geotiff":str(out/f"{name}_villa_de_alvarez.tif"),"png":str(out/f"{name}_villa_de_alvarez.png")} for name,spec in VARIABLES.items()]}
+    out_of_domain_counts={field:sum(1 for row in category_rows if row["source_field"]==field and row["category_kind"]=="fuera_del_dominio_documentado") for field in ("Clase_tex","Lmte_sup","Fase_fis_u","Fase_qui_u")}
+    manifest={"created_utc":datetime.now(timezone.utc).isoformat(),"project":"Doctorado-DCAG","municipality":"Villa de Álvarez, Colima","source":{"area_path":str(area_path),"area_layer":"area","pto_path":str(pto_path),"pto_layer":"pto","metadata":"Serie III, INEGI, escala 1:250 000, WRB 2014; Diccionario v4 (2016)"},"prior_audit_reused":{"coverage_json":str(audit_coverage_path),"profiles_inside_municipality":previous_audit.get("profiles_inside_municipality"),"profiles_in_regional_support":previous_audit.get("profiles_in_regional_support")},"grid_reference":{"path":str(grid_path),"crs":"EPSG:6368","resolution_m":list(EXPECTED_RESOLUTION),"width":EXPECTED_WIDTH,"height":EXPECTED_HEIGHT,"transform":list(transform),"municipal_mask_cells":int(inside_mask.sum()),"mask_matches_reference":True,"existing_physical_rasters_checked":[str(p) for p in companion_rasters]},"processing":{"spatial_selection":"municipal bounding box followed by exact intersection; selected features only","selected_polygon_count":len(records),"municipality_area_km2":float(municipality.area/1_000_000),"vector_coverage":vector_coverage,"invalid_geometries_selected_and_repaired":repairs,"post_repair_geometry_audit":invalid_report,"overlap_rows":len(overlaps),"contradictory_overlaps":len(conflicts),"overlap_policy":"positive-area contradictory overlaps block rasterization; identical category overlap is value-invariant; pixel-center burn; sort by feature id","nodata_by_source_field_inside_municipality":nodata_by_field,"conditional_na_technosol_violations":conditional_na_violations,"out_of_domain_category_count_by_field":out_of_domain_counts,"categorical_interpolation":"none","point_interpolation":"none","profile_features_catalogued":profile_count,"raster_validation":final_mask_reports},"products":[{"variable":name,"field":spec["field"],"geotiff":str(out/f"{name}_villa_de_alvarez.tif"),"png":str(out/f"{name}_villa_de_alvarez.png")} for name,spec in VARIABLES.items()]}
     (out/"manifiesto_edafologia.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2,default=str),encoding="utf-8")
     invalid_details="\n".join(f"- {r['feature_id']}: área fuente antes={r['area_before_m2_source_crs']:.9f} m²; después={r['area_after_m2_source_crs']:.9f} m²; cambio={r['area_delta_m2_source_crs']:.9f} m²; método={r['method']}." for r in repairs) or "- No se detectaron geometrías inválidas entre los polígonos seleccionados para el municipio."
     total_categories=len(category_rows)
@@ -444,7 +507,7 @@ Fuente: {area_path} (`area`); perfiles complementarios: {pto_path} (`pto`). Esca
 
 ## Rásteres categóricos
 
-Se generaron seis GeoTIFF y seis mapas PNG: suelo dominante (`Grupo1`), secundario (`Grupo2`), textura superficial (`Clase_tex`), limitante superficial (`Lmte_sup`), fase física (`Fase_fis_u`) y fase química (`Fase_qui_u`). Las categorías originales se codifican mediante identificadores enteros documentados en el catálogo; `N`, `N/A`, `N/D`, valores no disponibles y nulos reales no se fusionan. Nulos reales se representan como NoData. Rasterización por centro de píxel, sin interpolación.
+Se generaron seis GeoTIFF y seis mapas PNG: suelo dominante (`Grupo1`), secundario (`Grupo2`), textura superficial (`Clase_tex`), limitante superficial (`Lmte_sup`), fase física (`Fase_fis_u`) y fase química (`Fase_qui_u`). Los sentinelas se clasifican por el dominio oficial de cada campo, no con una regla global. Para textura, `N/A` no está definido por el diccionario v4 y se preserva/identifica como código fuente fuera del dominio documentado; `N/D` sí significa no disponible. Para `Lmte_sup` y `Fase_fis_u`, `N/A` es aplicable solo con `Grupo1=TC` (Technosol), condición comprobada en los registros municipales. Para `Fase_qui_u`, `N/A` no está listado y se conserva como código fuera del dominio; `N/D` significa no disponible. Nulos reales se representan como NoData. Rasterización por centro de píxel, sin interpolación.
 
 Las superficies vectoriales (unión de polígonos recortados por categoría) y áreas rasterizadas (número de celdas × 225 m²) se reportan por separado. Los porcentajes se calculan respecto del área municipal y respecto de celdas interiores, respectivamente. Consulte `estadisticas_superficie_edafologica.csv`.
 
